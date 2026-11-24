@@ -20,6 +20,8 @@ import com.aiza.data.trial.TrialOutcome
 import androidx.compose.runtime.mutableFloatStateOf
 import com.aiza.core.direction.pdr.HeadingFilter
 import kotlin.math.roundToInt
+import com.aiza.app.ui.components.CompassDial
+import androidx.compose.ui.unit.sp
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.VibrationEffect
@@ -257,10 +259,8 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
     var unwrapped by remember { mutableFloatStateOf(0f) }
     s.wedgeDeg?.let { unwrapped += HeadingFilter.angleDiff(it, unwrapped) }
     val wedgeAngle by animateFloatAsState(unwrapped, tween(250), label = "wedge-angle")
-    val north = s.headingDeg?.let { -it }
     val outline = MaterialTheme.colorScheme.outlineVariant
     val onBg = MaterialTheme.colorScheme.onBackground
-    val errorColor = MaterialTheme.colorScheme.error
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val d = minOf(maxWidth, maxHeight, 340.dp)
         Box(Modifier.size(d), contentAlignment = Alignment.Center) {
@@ -268,15 +268,8 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
                 val r = size.minDimension / 2
                 // Compass rings.
                 drawCircle(outline, r * 0.98f, style = Stroke(1.dp.toPx()))
-                drawCircle(outline.copy(alpha = 0.6f), r * 0.72f, style = Stroke(1.dp.toPx()))
                 // Forward tick (top of the phone).
                 drawLine(onBg.copy(alpha = 0.5f), Offset(center.x, center.y - r), Offset(center.x, center.y - r + 14.dp.toPx()), 3.dp.toPx())
-                // North marker on the outer ring, so the user sees the compass is live.
-                if (north != null) {
-                    val a = Math.toRadians((north - 90f).toDouble())
-                    val p = Offset(center.x + (r * 0.98f * kotlin.math.cos(a)).toFloat(), center.y + (r * 0.98f * kotlin.math.sin(a)).toFloat())
-                    drawCircle(errorColor, 5.dp.toPx(), p)
-                }
                 // 120° wedge, centred on the likely direction (C-4).
                 if (wedgeAlpha > 0f) {
                     val start = -90f + wedgeAngle - 60f
@@ -292,6 +285,8 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
                     )
                 }
             }
+            // Real compass card inside the outer ring (N always points north).
+            CompassDial(s.headingDeg, Modifier.size(d * 0.96f), labelSize = 15.sp, dotRadius = 5.5.dp)
             PulseRings(color, Modifier.size(d * 0.7f), rings = 3, periodMs = (2200 - 1700 * heat).toInt(), minRadiusFraction = 0.55f, filled = true)
             Orb(s, color, Modifier.size(d * 0.42f))
         }

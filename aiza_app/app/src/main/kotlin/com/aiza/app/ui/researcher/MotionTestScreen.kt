@@ -32,12 +32,13 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.aiza.app.AizaApplication
 import com.aiza.app.ui.components.AizaCard
+import com.aiza.app.ui.components.CompassDial
+import androidx.compose.ui.unit.sp
 import com.aiza.app.ui.components.SectionLabel
 import com.aiza.app.ui.components.VSpace
 import com.aiza.app.ui.search.compassLabel
@@ -102,7 +103,7 @@ fun MotionTestScreen(onBack: () -> Unit) {
             SectionLabel("Heading")
             AizaCard(Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Compass(state?.headingDeg, Modifier.size(96.dp))
+                    Compass(state?.headingDeg, Modifier.size(120.dp))
                     Box(Modifier.weight(1f).padding(start = 20.dp)) {
                         Text(state?.headingDeg?.let { compassLabel(it) } ?: "Waiting for compass…", style = MaterialTheme.typography.headlineSmall)
                     }
@@ -145,17 +146,15 @@ private fun Big(label: String, value: String, modifier: Modifier) {
 @Composable
 private fun Compass(headingDeg: Float?, modifier: Modifier) {
     val ring = MaterialTheme.colorScheme.outlineVariant
-    val north = MaterialTheme.colorScheme.error
     val needle = MaterialTheme.colorScheme.primary
-    Canvas(modifier) {
-        val r = size.minDimension / 2
-        drawCircle(ring, r, style = Stroke(2.dp.toPx()))
-        // The dial turns so N points to real north; the needle is the phone's forward direction.
-        rotate(-(headingDeg ?: 0f)) {
-            drawCircle(north, 5.dp.toPx(), Offset(center.x, center.y - r + 9.dp.toPx()))
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.matchParentSize()) {
+            drawCircle(ring, size.minDimension / 2, style = Stroke(2.dp.toPx()))
+            // Fixed pointer at the top: where the phone points.
+            val r = size.minDimension / 2
+            drawLine(needle, Offset(center.x, center.y - r - 2.dp.toPx()), Offset(center.x, center.y - r + 10.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
         }
-        drawLine(needle, center, Offset(center.x, center.y - r * 0.7f), 4.dp.toPx(), StrokeCap.Round)
-        drawCircle(needle, 4.dp.toPx())
+        CompassDial(headingDeg, Modifier.matchParentSize(), labelSize = 13.sp, dotRadius = 4.dp)
     }
 }
 
