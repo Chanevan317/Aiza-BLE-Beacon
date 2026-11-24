@@ -30,6 +30,8 @@ abstract class ScreenshotFlow {
 
     private fun shot(name: String) = rule.onRoot().captureRoboImage("build/outputs/roborazzi/${name}_$suffix.png", RoborazziOptions())
 
+    private fun has(text: String) = rule.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty()
+
     private fun tap(text: String) = rule.onNodeWithText(text, useUnmergedTree = true).performClick()
 
     /** Settings are saved on a background thread in real time; poll while pumping the main looper. */
@@ -58,7 +60,16 @@ abstract class ScreenshotFlow {
     fun flow() {
         settle(300); shot("01_splash")
         settle(1_100); shot("01b_splash_wordmark")
-        settle(3_000); rule.waitUntil(5_000) { rule.onAllNodes(hasText("Your tags")).fetchSemanticsNodes().isNotEmpty() }
+        settle(3_000)
+        waitFor { has("Welcome to AIZA") || has("Your tags") }
+        if (has("Welcome to AIZA")) {
+            settle(600); shot("01c_onboarding_welcome")
+            tap("Next"); settle(700); shot("01d_onboarding_search")
+            tap("Next"); settle(700); shot("01e_onboarding_privacy")
+            tap("Next"); settle(700); shot("01f_onboarding_permissions")
+            tap("Not now")
+        }
+        waitFor { has("Your tags") }
         settle(800); shot("02_home")
         rule.onNodeWithContentDescription("Card view").performClick()
         waitFor { rule.onAllNodes(hasText("Nearby")).fetchSemanticsNodes().isNotEmpty() }

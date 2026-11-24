@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Science
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,7 +63,7 @@ import com.aiza.data.tags.ThemeMode
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onResearcher: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onResearcher: () -> Unit, onPermissions: () -> Unit) {
     val container = (LocalContext.current.applicationContext as AizaApplication).container
     val repo = container.settingsRepository
     val settings by container.settings.collectAsStateWithLifecycle()
@@ -162,6 +163,12 @@ fun SettingsScreen(onBack: () -> Unit, onResearcher: () -> Unit) {
                         Text("Sooner", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Text("Later", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
+            }
+            item {
+                SectionLabel("Privacy")
+                AizaCard(Modifier.fillMaxWidth(), padding = 4.dp) {
+                    NavRow(Icons.Rounded.Shield, "Permissions", "Bluetooth, location and notifications", onPermissions)
                 }
             }
             item {

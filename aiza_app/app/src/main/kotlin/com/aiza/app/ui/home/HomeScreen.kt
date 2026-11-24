@@ -3,6 +3,11 @@
 package com.aiza.app.ui.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material.icons.rounded.Shield
+import com.aiza.app.ui.permissions.rememberPermissionController
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.scaleOut
@@ -89,7 +94,7 @@ import com.aiza.data.tags.Tag
 import com.aiza.data.tags.ThemeMode
 
 @Composable
-fun HomeScreen(onOpenTag: (String) -> Unit, onSettings: () -> Unit) {
+fun HomeScreen(onOpenTag: (String) -> Unit, onSettings: () -> Unit, onPermissions: () -> Unit) {
     val vm = aizaViewModel { HomeViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     var pairing by rememberSaveable { mutableStateOf(false) }
@@ -143,6 +148,7 @@ fun HomeScreen(onOpenTag: (String) -> Unit, onSettings: () -> Unit) {
             Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding() + 4.dp)) {
                 // Header stays put; only the tag container cross-fades when switching list <-> cards.
                 Header(state, onToggleLayout = vm::toggleLayout, modifier = Modifier.padding(horizontal = 20.dp))
+                PermissionBanner(onPermissions, Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp))
                 AnimatedContent(
                     state.settings.homeLayout,
                     transitionSpec = {
@@ -250,6 +256,35 @@ private fun Modifier.appear(index: Int): Modifier {
         val sc = 0.96f + 0.04f * p
         scaleX = sc
         scaleY = sc
+    }
+}
+
+/** Shown while Bluetooth/location permissions or switches are missing; tapping opens the Permissions screen. */
+@Composable
+private fun PermissionBanner(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val controller = rememberPermissionController()
+    AnimatedVisibility(!controller.state.allReady, modifier, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+        Surface(
+            onClick = onClick,
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Shield, null)
+                HSpace(12.dp)
+                Column(Modifier.weight(1f)) {
+                    Text("Finish setting up", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (!controller.state.allGranted) "Allow access so AIZA can reach your tags."
+                        else "Turn on Bluetooth and location to reach your tags.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Icon(Icons.Rounded.ChevronRight, null)
+            }
+        }
     }
 }
 

@@ -29,19 +29,36 @@ import com.aiza.app.ui.settings.SettingsScreen
 import com.aiza.app.ui.splash.AizaSplash
 import com.aiza.app.ui.tag.TagScreen
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aiza.app.ui.onboarding.OnboardingScreen
+import com.aiza.app.ui.permissions.PermissionsScreen
 
 @Serializable object HomeRoute
 @Serializable data class TagRoute(val address: String)
 @Serializable data class SearchRoute(val address: String)
 @Serializable object SettingsRoute
 @Serializable object ResearcherRoute
+@Serializable object PermissionsRoute
 
 @Composable
 fun AizaRoot(container: AppContainer) {
     var splashDone by rememberSaveable { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Crossfade(splashDone, animationSpec = tween(450), label = "splash") { done ->
-            if (done) AizaNavHost() else AizaSplash(onFinished = { splashDone = true })
+        val settings by container.settings.collectAsStateWithLifecycle()
+        val scope = rememberCoroutineScope()
+        val stage = when {
+            !splashDone -> 0
+            settings?.onboardingDone == false -> 1
+            else -> 2
+        }
+        Crossfade(stage, animationSpec = tween(450), label = "root") { s ->
+            when (s) {
+                0 -> AizaSplash(onFinished = { splashDone = true })
+                1 -> OnboardingScreen(onFinished = { scope.launch { container.settingsRepository.setOnboardingDone(true) } })
+                else -> AizaNavHost()
+            }
         }
     }
 }
@@ -62,6 +79,7 @@ private fun AizaNavHost() {
             HomeScreen(
                 onOpenTag = { nav.navigate(TagRoute(it)) },
                 onSettings = { nav.navigate(SettingsRoute) },
+                onPermissions = { nav.navigate(PermissionsRoute) },
             )
         }
         composable<TagRoute> { entry ->
@@ -79,8 +97,13 @@ private fun AizaNavHost() {
             SearchScreen(address = entry.toRoute<SearchRoute>().address, onClose = { nav.popBackStack() })
         }
         composable<SettingsRoute> {
-            SettingsScreen(onBack = { nav.popBackStack() }, onResearcher = { nav.navigate(ResearcherRoute) })
+            SettingsScreen(
+                onBack = { nav.popBackStack() },
+                onResearcher = { nav.navigate(ResearcherRoute) },
+                onPermissions = { nav.navigate(PermissionsRoute) },
+            )
         }
         composable<ResearcherRoute> { ResearcherScreen(onBack = { nav.popBackStack() }) }
+        composable<PermissionsRoute> { PermissionsScreen(onBack = { nav.popBackStack() }) }
     }
 }
