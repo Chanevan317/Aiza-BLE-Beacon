@@ -182,7 +182,7 @@ private fun WalkStats(s: SearchState) {
         Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, null, Modifier.size(16.dp), tint = muted)
         HSpace(4.dp)
         Text(
-            "${s.steps} steps · ${"%.1f".format(s.walkedM)} m" + (s.headingDeg?.let { " · ${compassLabel(it)}" } ?: ""),
+            "${s.steps} steps · ${"%.1f".format(s.walkedM)} m" + (s.headingDeg?.takeIf { s.settings.showCompass }?.let { " · ${compassLabel(it)}" } ?: ""),
             style = MaterialTheme.typography.labelLarge, color = muted,
         )
     }
@@ -268,8 +268,6 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
                 val r = size.minDimension / 2
                 // Compass rings.
                 drawCircle(outline, r * 0.98f, style = Stroke(1.dp.toPx()))
-                // Forward tick (top of the phone).
-                drawLine(onBg.copy(alpha = 0.5f), Offset(center.x, center.y - r), Offset(center.x, center.y - r + 14.dp.toPx()), 3.dp.toPx())
                 // 120° wedge, centred on the likely direction (C-4).
                 if (wedgeAlpha > 0f) {
                     val start = -90f + wedgeAngle - 60f
@@ -285,8 +283,8 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
                     )
                 }
             }
-            // Real compass card inside the outer ring (N always points north).
-            CompassDial(s.headingDeg, Modifier.size(d * 0.96f), labelSize = 15.sp, dotRadius = 5.5.dp)
+            // Real compass card inside the outer ring (N always points north); bar on top = the person's front.
+            CompassDial(s.headingDeg, Modifier.size(d * 0.9f), labelSize = 15.sp, frontSize = 16.dp, showLabels = s.settings.showCompass)
             PulseRings(color, Modifier.size(d * 0.7f), rings = 3, periodMs = (2200 - 1700 * heat).toInt(), minRadiusFraction = 0.55f, filled = true)
             Orb(s, color, Modifier.size(d * 0.42f))
         }

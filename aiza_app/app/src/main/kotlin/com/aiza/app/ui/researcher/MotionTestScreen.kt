@@ -146,15 +146,9 @@ private fun Big(label: String, value: String, modifier: Modifier) {
 @Composable
 private fun Compass(headingDeg: Float?, modifier: Modifier) {
     val ring = MaterialTheme.colorScheme.outlineVariant
-    val needle = MaterialTheme.colorScheme.primary
     Box(modifier, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.matchParentSize()) {
-            drawCircle(ring, size.minDimension / 2, style = Stroke(2.dp.toPx()))
-            // Fixed pointer at the top: where the phone points.
-            val r = size.minDimension / 2
-            drawLine(needle, Offset(center.x, center.y - r - 2.dp.toPx()), Offset(center.x, center.y - r + 10.dp.toPx()), 4.dp.toPx(), StrokeCap.Round)
-        }
-        CompassDial(headingDeg, Modifier.matchParentSize(), labelSize = 13.sp, dotRadius = 4.dp)
+        Canvas(Modifier.matchParentSize()) { drawCircle(ring, size.minDimension / 2, style = Stroke(1.dp.toPx())) }
+        CompassDial(headingDeg, Modifier.matchParentSize().padding(4.dp), labelSize = 13.sp, frontSize = 12.dp)
     }
 }
 

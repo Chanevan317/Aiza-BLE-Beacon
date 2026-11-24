@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -134,6 +135,10 @@ fun SettingsScreen(onBack: () -> Unit, onResearcher: () -> Unit, onPermissions: 
                     Divider()
                     SwitchRow(Icons.Rounded.Vibration, "Vibration", "Pulses speed up as you get closer", s.searchVibration) {
                         scope.launch { repo.setSearchVibration(it) }
+                    }
+                    Divider()
+                    SwitchRow(Icons.Rounded.Explore, "Show compass", "N, E, S, W and degrees on the search screen", s.showCompass) {
+                        scope.launch { repo.setShowCompass(it) }
                     }
                 }
             }

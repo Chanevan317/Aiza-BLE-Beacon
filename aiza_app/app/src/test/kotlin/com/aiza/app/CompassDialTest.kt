@@ -31,9 +31,9 @@ class CompassDialTest {
     fun dial() {
         rule.setContent {
             AizaTheme(darkTheme = false) {
-                Row(Modifier.background(MaterialTheme.colorScheme.background).padding(16.dp)) {
-                    CompassDial(0f, Modifier.size(180.dp), labelSize = 15.sp, dotRadius = 5.5.dp)
-                    CompassDial(30f, Modifier.size(180.dp), labelSize = 15.sp, dotRadius = 5.5.dp)
+                Row(Modifier.background(MaterialTheme.colorScheme.background).padding(24.dp)) {
+                    CompassDial(0f, Modifier.size(180.dp), labelSize = 15.sp, frontSize = 16.dp)
+                    CompassDial(30f, Modifier.size(180.dp), labelSize = 15.sp, frontSize = 16.dp)
                 }
             }
         }

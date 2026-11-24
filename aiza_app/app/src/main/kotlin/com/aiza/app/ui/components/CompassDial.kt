@@ -26,8 +26,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * A compass card like a real compass: degree ticks, N/E/S/W letters and a red dot just below N.
- * The whole card turns by −heading so N always points to real north; the top of the view is where the phone points.
+ * A compass card like a real compass: degree ticks and N/E/S/W letters. The card turns by −heading so N always
+ * points to real north, while a fixed bar at the top (lubber line) marks the person's front (where the phone points).
  * Draws nothing until a heading is known.
  */
 @Composable
@@ -35,7 +35,9 @@ fun CompassDial(
     headingDeg: Float?,
     modifier: Modifier = Modifier,
     labelSize: TextUnit = 16.sp,
-    dotRadius: Dp = 6.dp,
+    frontSize: Dp = 14.dp,
+    /** False = ticks and front bar only (no N/E/S/W). */
+    showLabels: Boolean = true,
 ) {
     // Unwrap so 359° → 1° turns 2°, not 358° the long way round.
     var unwrapped by remember { mutableFloatStateOf(headingDeg ?: 0f) }
@@ -46,6 +48,7 @@ fun CompassDial(
     val tick = MaterialTheme.colorScheme.outline
     val text = MaterialTheme.colorScheme.onSurface
     val north = MaterialTheme.colorScheme.error
+    val front = MaterialTheme.colorScheme.primary
     val base = TextStyle(fontSize = labelSize, fontWeight = FontWeight.Bold)
     val labels = remember(labelSize, text, north) {
         listOf("N" to north, "E" to text, "S" to text, "W" to text).map { (l, c) -> measurer.measure(l, base.copy(color = c)) }
@@ -70,9 +73,14 @@ fun CompassDial(
                     )
                 }
             }
-            // North dot just below the N.
-            drawCircle(north, dotRadius.toPx(), Offset(center.x, center.y - labelCentre + labelHeight / 2f + 3.dp.toPx() + dotRadius.toPx()))
         }
+        // Front marker (lubber line): fixed, does not turn with the card. A thick bar, not an arrow, so it reads as
+        // "you are facing here" and is not mistaken for the direction to the tag.
+        drawLine(
+            front, Offset(center.x, center.y - r - frontSize.toPx() * 0.35f), Offset(center.x, center.y - r + major),
+            frontSize.toPx() * 0.4f, StrokeCap.Round,
+        )
+        if (!showLabels) return@Canvas
         // Letters at 0/90/180/270: positioned with the card but kept upright so they are always readable.
         labels.forEachIndexed { i, layout ->
             val a = Math.toRadians((rotation + i * 90f - 90f).toDouble())

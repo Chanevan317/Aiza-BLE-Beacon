@@ -21,6 +21,8 @@ data class Settings(
     val onboardingDone: Boolean = false,
     val searchSound: Boolean = true,
     val searchVibration: Boolean = true,
+    /** Show N/E/S/W and degrees on the search radar. Off by default: most people search by "ahead/left/right". */
+    val showCompass: Boolean = false,
     /** Left-behind alert fires when the signal stays below this (FR-SEP-02). */
     val alertThresholdDbm: Int = -85,
 )
@@ -35,6 +37,7 @@ class SettingsRepository(private val context: Context) {
         val onboarded = booleanPreferencesKey("onboarding_done")
         val sound = booleanPreferencesKey("sound")
         val vibration = booleanPreferencesKey("vibration")
+        val compass = booleanPreferencesKey("show_compass")
         val threshold = intPreferencesKey("alert_threshold_dbm")
     }
 
@@ -47,6 +50,7 @@ class SettingsRepository(private val context: Context) {
             onboardingDone = p[Keys.onboarded] ?: d.onboardingDone,
             searchSound = p[Keys.sound] ?: d.searchSound,
             searchVibration = p[Keys.vibration] ?: d.searchVibration,
+            showCompass = p[Keys.compass] ?: d.showCompass,
             alertThresholdDbm = p[Keys.threshold] ?: d.alertThresholdDbm,
         )
     }
@@ -57,5 +61,6 @@ class SettingsRepository(private val context: Context) {
     suspend fun setDemoMode(on: Boolean) { context.settingsStore.edit { it[Keys.demo] = on } }
     suspend fun setSearchSound(on: Boolean) { context.settingsStore.edit { it[Keys.sound] = on } }
     suspend fun setSearchVibration(on: Boolean) { context.settingsStore.edit { it[Keys.vibration] = on } }
+    suspend fun setShowCompass(on: Boolean) { context.settingsStore.edit { it[Keys.compass] = on } }
     suspend fun setAlertThreshold(dbm: Int) { context.settingsStore.edit { it[Keys.threshold] = dbm } }
 }
