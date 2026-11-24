@@ -17,6 +17,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.graphicsLayer
 import com.aiza.app.data.TrialLive
 import com.aiza.data.trial.TrialOutcome
+import androidx.compose.runtime.mutableFloatStateOf
+import com.aiza.core.direction.pdr.HeadingFilter
+import kotlin.math.roundToInt
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.VibrationEffect
@@ -130,7 +133,9 @@ fun SearchScreen(address: String, onClose: () -> Unit, onTrialFinished: (String?
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Radar(s, heat, color)
             }
-            DirectionHint(s.wedgeDeg != null, s.proximity == Proximity.VERY_CLOSE)
+            WalkStats(s)
+            VSpace(10.dp)
+            DirectionHint(s.wedgeDeg != null, s.proximity == Proximity.VERY_CLOSE, s.turning)
             VSpace(16.dp)
             HeatBar(heat)
             VSpace(20.dp)
@@ -167,6 +172,25 @@ private fun TopRow(s: SearchState, onClose: () -> Unit, onMute: () -> Unit) {
     }
 }
 
+/** Steps, distance walked and compass heading (FR-DIR-01). */
+@Composable
+private fun WalkStats(s: SearchState) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        val muted = MaterialTheme.colorScheme.onSurfaceVariant
+        Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, null, Modifier.size(16.dp), tint = muted)
+        HSpace(4.dp)
+        Text(
+            "${s.steps} steps · ${"%.1f".format(s.walkedM)} m" + (s.headingDeg?.let { " · ${compassLabel(it)}" } ?: ""),
+            style = MaterialTheme.typography.labelLarge, color = muted,
+        )
+    }
+}
+
+internal fun compassLabel(deg: Float): String {
+    val names = listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+    return "${deg.roundToInt() % 360}° ${names[((deg + 22.5f) / 45f).toInt() % 8]}"
+}
+
 /** Researcher strip during a trial: recording status, timer, checkpoint and found buttons (FR-TRL-02/03). */
 @Composable
 private fun TrialBar(live: TrialLive, onCheckpoint: () -> Unit, onFound: () -> Unit) {
@@ -188,7 +212,7 @@ private fun TrialBar(live: TrialLive, onCheckpoint: () -> Unit, onFound: () -> U
                 Text(formatTrialTime(live.elapsedMs), style = MaterialTheme.typography.titleMedium)
             }
             Text(
-                "${live.meta.volunteerCode} · RSSI ${live.rssi} · motion ${live.motion} · heading ${live.heading}" +
+                "${live.meta.volunteerCode} · RSSI ${live.rssi} · motion ${live.motion} · heading ${live.heading} · steps ${live.steps}" +
                     if (live.meta.wedgeShown) "" else " · no wedge",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -229,9 +253,14 @@ private fun EndTrialDialog(onNotFound: () -> Unit, onDiscard: () -> Unit, onDism
 @Composable
 private fun Radar(s: SearchState, heat: Float, color: Color) {
     val wedgeAlpha by animateFloatAsState(if (s.wedgeDeg != null) 1f else 0f, tween(900), label = "wedge") // fades, never pops
-    val wedgeAngle by animateFloatAsState(s.wedgeDeg ?: 0f, tween(600), label = "wedge-angle")
+    // Unwrap so a change from 170° to −170° turns 20°, not 340° the long way round.
+    var unwrapped by remember { mutableFloatStateOf(0f) }
+    s.wedgeDeg?.let { unwrapped += HeadingFilter.angleDiff(it, unwrapped) }
+    val wedgeAngle by animateFloatAsState(unwrapped, tween(250), label = "wedge-angle")
+    val north = s.headingDeg?.let { -it }
     val outline = MaterialTheme.colorScheme.outlineVariant
     val onBg = MaterialTheme.colorScheme.onBackground
+    val errorColor = MaterialTheme.colorScheme.error
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val d = minOf(maxWidth, maxHeight, 340.dp)
         Box(Modifier.size(d), contentAlignment = Alignment.Center) {
@@ -242,6 +271,12 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
                 drawCircle(outline.copy(alpha = 0.6f), r * 0.72f, style = Stroke(1.dp.toPx()))
                 // Forward tick (top of the phone).
                 drawLine(onBg.copy(alpha = 0.5f), Offset(center.x, center.y - r), Offset(center.x, center.y - r + 14.dp.toPx()), 3.dp.toPx())
+                // North marker on the outer ring, so the user sees the compass is live.
+                if (north != null) {
+                    val a = Math.toRadians((north - 90f).toDouble())
+                    val p = Offset(center.x + (r * 0.98f * kotlin.math.cos(a)).toFloat(), center.y + (r * 0.98f * kotlin.math.sin(a)).toFloat())
+                    drawCircle(errorColor, 5.dp.toPx(), p)
+                }
                 // 120° wedge, centred on the likely direction (C-4).
                 if (wedgeAlpha > 0f) {
                     val start = -90f + wedgeAngle - 60f
@@ -303,28 +338,29 @@ private fun Orb(s: SearchState, color: Color, modifier: Modifier) {
 }
 
 @Composable
-private fun DirectionHint(wedge: Boolean, veryClose: Boolean) {
+private fun DirectionHint(wedge: Boolean, veryClose: Boolean, turning: Boolean) {
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        AnimatedContent(if (veryClose) 2 else if (wedge) 1 else 0, label = "hint") { mode ->
+        AnimatedContent(if (veryClose) 2 else if (wedge) 1 else if (turning) 3 else 0, label = "hint") { mode ->
             val w = mode == 1
             Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    when (mode) { 2 -> Icons.Rounded.NotificationsActive; 1 -> Icons.Rounded.Explore; else -> Icons.AutoMirrored.Rounded.DirectionsWalk },
+                    when (mode) { 3 -> Icons.Rounded.Autorenew; 2 -> Icons.Rounded.NotificationsActive; 1 -> Icons.Rounded.Explore; else -> Icons.AutoMirrored.Rounded.DirectionsWalk },
                     null, tint = MaterialTheme.colorScheme.primary,
                 )
                 HSpace(12.dp)
                 Column {
                     Text(
-                        when (mode) { 2 -> "It's within reach"; 1 -> "Likely this way"; else -> "Keep walking" },
+                        when (mode) { 3 -> "Turning"; 2 -> "It's within reach"; 1 -> "Likely this way"; else -> "Keep walking" },
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
                         when (mode) {
+                            3 -> "Readings are paused while you turn. Then walk in a straight line."
                             2 -> "Look around you, or ring the tag and listen for it."
                             1 -> "The highlighted area shows where your tag probably is."
                             else -> "Walk around slowly. A direction appears once AIZA is confident."

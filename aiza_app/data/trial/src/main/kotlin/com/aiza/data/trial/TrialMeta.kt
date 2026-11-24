@@ -50,6 +50,9 @@ data class TrialMeta(
     val outcome: TrialOutcome = TrialOutcome.RUNNING,
     val checkpoints: Int = 0,
     val rowCount: Long = 0,
+    /** Steps and walked distance from step + heading tracking (FR-DIR-01). */
+    val steps: Int = 0,
+    val walkedM: Float = 0f,
 ) {
     val durationMs: Long? get() = endElapsedNs?.let { (it - startElapsedNs) / 1_000_000 }
 }

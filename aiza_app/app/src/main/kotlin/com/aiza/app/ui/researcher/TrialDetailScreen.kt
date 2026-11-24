@@ -82,6 +82,7 @@ fun TrialDetailScreen(trialId: String, onBack: () -> Unit) {
                 KeyValue("Line of sight", t.lineOfSight.label)
                 KeyValue("Search style", t.searchStyle.label)
                 KeyValue("Wedge shown", if (t.wedgeShown) "Yes" else "No")
+                if (t.steps > 0) KeyValue("Walked", "${t.steps} steps · ${"%.1f".format(t.walkedM)} m (%.1f× straight line)".format(t.walkedM / t.tagDistanceM))
                 if (t.notes.isNotBlank()) KeyValue("Notes", t.notes)
             }
         }

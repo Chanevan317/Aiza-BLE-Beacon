@@ -23,7 +23,6 @@ class MotionSensors(context: Context) {
 
     fun samples(samplingPeriodUs: Int = SensorManager.SENSOR_DELAY_GAME): Flow<Sample> = callbackFlow {
         val rotation = FloatArray(9)
-        val orientation = FloatArray(3)
         val listener = object : SensorEventListener {
             override fun onSensorChanged(e: SensorEvent) {
                 val sample: Sample = when (e.sensor.type) {
@@ -31,9 +30,7 @@ class MotionSensors(context: Context) {
                     Sensor.TYPE_GYROSCOPE -> GyroSample(e.timestamp, e.values[0], e.values[1], e.values[2])
                     Sensor.TYPE_ROTATION_VECTOR -> {
                         SensorManager.getRotationMatrixFromVector(rotation, e.values)
-                        SensorManager.getOrientation(rotation, orientation)
-                        val deg = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                        HeadingSample(e.timestamp, (deg + 360f) % 360f)
+                        HeadingSample(e.timestamp, pointingHeading(rotation))
                     }
                     else -> return
                 }
@@ -45,5 +42,19 @@ class MotionSensors(context: Context) {
             .mapNotNull(sm::getDefaultSensor)
             .forEach { sm.registerListener(listener, it, samplingPeriodUs) }
         awaitClose { sm.unregisterListener(listener) }
+    }
+
+    companion object {
+        /**
+         * Direction the phone points, degrees from north, whether it is held flat (top edge forward) or
+         * upright (back camera forward). Plain getOrientation() azimuth jumps around when the phone is upright.
+         * Uses the horizontal part of (top axis − screen normal) in world (east, north, up) coordinates.
+         */
+        fun pointingHeading(r: FloatArray): Float {
+            val east = r[1] - r[2]
+            val north = r[4] - r[5]
+            val deg = Math.toDegrees(kotlin.math.atan2(east, north).toDouble()).toFloat()
+            return (deg + 360f) % 360f
+        }
     }
 }

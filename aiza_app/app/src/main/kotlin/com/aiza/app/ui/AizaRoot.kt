@@ -24,6 +24,7 @@ import androidx.navigation.toRoute
 import com.aiza.app.data.AppContainer
 import com.aiza.app.ui.home.HomeScreen
 import com.aiza.app.ui.researcher.ConsentScreen
+import com.aiza.app.ui.researcher.MotionTestScreen
 import com.aiza.app.ui.researcher.NewTrialScreen
 import com.aiza.app.ui.researcher.ResearcherScreen
 import com.aiza.app.ui.researcher.TrialDetailScreen
@@ -45,6 +46,7 @@ import com.aiza.app.ui.permissions.PermissionsScreen
 @Serializable object ResearcherRoute
 @Serializable object PermissionsRoute
 @Serializable object NewTrialRoute
+@Serializable object MotionTestRoute
 @Serializable object ConsentRoute
 @Serializable data class TrialRoute(val id: String)
 
@@ -121,8 +123,10 @@ private fun AizaNavHost() {
                 onBack = { nav.popBackStack() },
                 onNewTrial = { nav.navigate(NewTrialRoute) },
                 onOpenTrial = { nav.navigate(TrialRoute(it)) },
+                onMotionTest = { nav.navigate(MotionTestRoute) },
             )
         }
+        composable<MotionTestRoute> { MotionTestScreen(onBack = { nav.popBackStack() }) }
         composable<NewTrialRoute> { NewTrialScreen(onBack = { nav.popBackStack() }, onContinue = { nav.navigate(ConsentRoute) }) }
         composable<ConsentRoute> {
             ConsentScreen(

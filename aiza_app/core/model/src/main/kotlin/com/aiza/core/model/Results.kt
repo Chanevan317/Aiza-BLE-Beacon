@@ -29,3 +29,27 @@ data class WedgeDecision(
 }
 
 enum class NoWedgeReason { LOW_CONFIDENCE, CONTRADICTS_HOT_COLD, MOVED_TOO_FAR, TAG_VERY_CLOSE, NOT_ENOUGH_DATA }
+
+/** One detected step (FR-DIR-01). */
+data class Step(
+    val timestampNanos: TimestampNanos,
+    /** Estimated stride length in metres. */
+    val lengthM: Float,
+    /** Smoothed heading at the moment of the step, degrees from north. */
+    val headingDeg: Float,
+)
+
+/**
+ * Pedestrian dead reckoning output: where the phone has walked relative to where tracking started.
+ * x = metres east, y = metres north.
+ */
+data class PdrState(
+    val timestampNanos: TimestampNanos,
+    val x: Float,
+    val y: Float,
+    val headingDeg: Float?,
+    val steps: Int,
+    val distanceM: Float,
+    /** True while the user is turning; readings taken now should be ignored (FR-DIR-02). */
+    val turning: Boolean,
+)

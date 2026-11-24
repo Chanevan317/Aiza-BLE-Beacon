@@ -24,6 +24,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import com.aiza.core.direction.pdr.PdrTracker
 import kotlinx.coroutines.launch
 
 /** What the researcher filled in before consent. */
@@ -50,6 +52,8 @@ data class TrialLive(
     val motion: Long = 0,
     val heading: Long = 0,
     val events: Long = 0,
+    val steps: Int = 0,
+    val walkedM: Float = 0f,
 )
 
 /**
@@ -72,6 +76,7 @@ class TrialRecorder(
     private var rows: Channel<LogRow>? = null
     private var jobs: List<Job> = emptyList()
     private var checkpoints = 0
+    private var pdr = PdrTracker()
 
     val active: Boolean get() = _live.value != null
 
@@ -95,6 +100,7 @@ class TrialRecorder(
         )
         store.saveMeta(meta)
         checkpoints = 0
+        pdr = PdrTracker()
         val channel = Channel<LogRow>(Channel.UNLIMITED)
         rows = channel
         _live.value = TrialLive(meta)
@@ -103,11 +109,16 @@ class TrialRecorder(
             scope.launch(Dispatchers.IO) {
                 try { for (row in channel) { writer.write(row); count(row) } } finally { writer.close() }
             },
-            scope.launch { sensors.samples().collect { channel.trySend(SampleRow(it)) } },
+            scope.launch {
+                sensors.samples().collect { s ->
+                    channel.trySend(SampleRow(s))
+                    if (pdr.add(s) != null) _live.update { it?.copy(steps = pdr.state.steps, walkedM = pdr.state.distanceM) }
+                }
+            },
             scope.launch {
                 while (true) {
                     delay(500)
-                    _live.value = _live.value?.let { it.copy(elapsedMs = (SystemClock.elapsedRealtimeNanos() - meta.startElapsedNs) / 1_000_000) }
+                    _live.update { it?.copy(elapsedMs = (SystemClock.elapsedRealtimeNanos() - meta.startElapsedNs) / 1_000_000) }
                 }
             },
         )
@@ -143,7 +154,8 @@ class TrialRecorder(
         rows = null
         _live.value = null
         if (discard) { store.delete(live.meta.trialId); return null }
-        val meta = live.meta.copy(endElapsedNs = endNs, outcome = outcome, checkpoints = checkpoints, rowCount = writerRows)
+        val meta = live.meta.copy(endElapsedNs = endNs, outcome = outcome, checkpoints = checkpoints, rowCount = writerRows,
+            steps = pdr.state.steps, walkedM = pdr.state.distanceM)
         store.saveMeta(meta)
         return meta
     }
@@ -152,14 +164,13 @@ class TrialRecorder(
 
     private fun count(row: LogRow) {
         writerRows++
-        val l = _live.value ?: return
-        _live.value = when (row) {
+        _live.update { l -> if (l == null) null else when (row) {
             is SampleRow -> when (row.sample) {
                 is RssiSample -> l.copy(rssi = l.rssi + 1)
                 is AccelSample, is GyroSample -> l.copy(motion = l.motion + 1)
                 is HeadingSample -> l.copy(heading = l.heading + 1)
             }
             else -> l.copy(events = l.events + 1)
-        }
+        } }
     }
 }

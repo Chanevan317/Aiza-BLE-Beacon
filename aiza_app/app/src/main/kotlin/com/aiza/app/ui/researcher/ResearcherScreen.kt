@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Download
@@ -59,7 +60,7 @@ import java.util.Locale
 
 /** Trial list, new trial, export all, delete a volunteer's data (FR-TRL-01, 04, 05). */
 @Composable
-fun ResearcherScreen(onBack: () -> Unit, onNewTrial: () -> Unit, onOpenTrial: (String) -> Unit) {
+fun ResearcherScreen(onBack: () -> Unit, onNewTrial: () -> Unit, onOpenTrial: (String) -> Unit, onMotionTest: () -> Unit = {}) {
     val container = (LocalContext.current.applicationContext as AizaApplication).container
     val trials by container.trialStore.trials.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -108,6 +109,19 @@ fun ResearcherScreen(onBack: () -> Unit, onNewTrial: () -> Unit, onOpenTrial: (S
         item {
             Button(onNewTrial, Modifier.fillMaxWidth().height(56.dp), shape = MaterialTheme.shapes.large) {
                 Icon(Icons.Rounded.Add, null); HSpace(8.dp); Text("New trial")
+            }
+        }
+        item {
+            AizaCard(Modifier.fillMaxWidth(), onClick = onMotionTest, padding = 14.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, null, tint = MaterialTheme.colorScheme.primary)
+                    HSpace(12.dp)
+                    Column(Modifier.weight(1f)) {
+                        Text("Step & heading test", style = MaterialTheme.typography.titleSmall)
+                        Text("Check step counting and compass before trials", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.outline)
+                }
             }
         }
         if (trials.isEmpty()) {

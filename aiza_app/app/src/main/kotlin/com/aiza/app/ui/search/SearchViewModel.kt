@@ -4,6 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aiza.app.data.AppContainer
 import com.aiza.core.direction.HotColdFilter
+import com.aiza.core.direction.pdr.HeadingFilter
+import com.aiza.core.direction.pdr.PdrTracker
+import com.aiza.core.direction.pdr.StretchLabeler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import com.aiza.data.tags.Settings
 import com.aiza.data.tags.Tag
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +34,11 @@ data class SearchState(
     val wedgeDeg: Float? = null,
     val muted: Boolean = false,
     val ringing: Boolean = false,
+    /** Step + heading tracking (FR-DIR-01/02). */
+    val steps: Int = 0,
+    val walkedM: Float = 0f,
+    val headingDeg: Float? = null,
+    val turning: Boolean = false,
 )
 
 class SearchViewModel(private val container: AppContainer, private val address: String) : ViewModel() {
@@ -42,8 +52,29 @@ class SearchViewModel(private val container: AppContainer, private val address: 
 
     private val filter = HotColdFilter() // FR-HC-03: median of each 250 ms window
     private val history = ArrayDeque<Float>()
+    private val pdr = PdrTracker()
+    private val stretches = StretchLabeler()
+    /** Demo only: world bearing of the fake tag, fixed when the demo wedge first appears. */
+    private var demoBearing: Float? = null
 
     init {
+        // Step + heading tracking runs for the whole search (FR-DIR-01).
+        viewModelScope.launch {
+            var lastPush = 0L
+            container.motionSensors.samples().flowOn(Dispatchers.Default).collect { sample ->
+                val step = pdr.add(sample)
+                val p = pdr.state
+                if (step != null) synchronized(stretches) { stretches.step(step, p.turning) }
+                val s = _state.value
+                if (step != null || p.turning != s.turning || p.timestampNanos - lastPush > 100_000_000L) {
+                    lastPush = p.timestampNanos
+                    _state.update {
+                        it.copy(steps = p.steps, walkedM = p.distanceM, headingDeg = p.headingDeg, turning = p.turning,
+                            wedgeDeg = relativeWedge(it.wedgeDeg != null, p.headingDeg))
+                    }
+                }
+            }
+        }
         viewModelScope.launch {
             val settings = container.settingsRepository.settings.first()
             _state.update { it.copy(settings = settings, tag = container.tags.tag(address).first()) }
@@ -53,6 +84,7 @@ class SearchViewModel(private val container: AppContainer, private val address: 
                 recorder.sample(sample)
                 val first = startNs ?: sample.timestampNanos.also { startNs = it }
                 val reading = filter.add(sample) ?: return@collect
+                synchronized(stretches) { stretches.reading(reading, _state.value.turning) }
                 onReading(reading.filteredRssiDbm, settings.demoMode, (reading.timestampNanos - first) / 1e9)
             }
         }
@@ -79,11 +111,23 @@ class SearchViewModel(private val container: AppContainer, private val address: 
         }
         // The real wedge comes from the direction core (FR-DIR-03..06), which is not built yet.
         // In demo mode a fake wedge shows the design: appears after a while, hides when very close.
-        val demoWedge = if (demo && elapsedS > 10 && proximity != Proximity.VERY_CLOSE) 18f else null
+        // The demo tag sits at a fixed compass bearing, so the wedge now turns as the user turns.
+        val showDemo = demo && elapsedS > 10 && proximity != Proximity.VERY_CLOSE
         // Without-wedge trials never show it (SRS §6.2 "with vs without wedge").
-        val wedge = if (trial != null && !trial.wedgeShown) null else demoWedge
-        if (wedge != lastWedge) { recorder.wedge(wedge, if (wedge != null) 0.93f else 0f); lastWedge = wedge }
-        _state.update { it.copy(rssiDbm = recent, heat = heat, proximity = proximity, heading = heading, wedgeDeg = wedge) }
+        val show = showDemo && !(trial != null && !trial.wedgeShown)
+        val h = _state.value.headingDeg
+        if (show && demoBearing == null) demoBearing = ((h ?: 0f) + 18f) % 360f
+        // Log the wedge in world degrees (comparable with the ground-truth bearing) when it appears/disappears.
+        val world = if (show) demoBearing else null
+        if (world != lastWedge) { recorder.wedge(world, if (world != null) 0.93f else 0f); lastWedge = world }
+        _state.update { it.copy(rssiDbm = recent, heat = heat, proximity = proximity, heading = heading, wedgeDeg = relativeWedge(show, h)) }
+    }
+
+    /** Wedge centre relative to where the phone points; falls back to a fixed offset without a compass. */
+    private fun relativeWedge(show: Boolean, headingDeg: Float?): Float? {
+        if (!show) return null
+        val b = demoBearing ?: return null
+        return if (headingDeg == null) 18f else HeadingFilter.angleDiff(b, headingDeg)
     }
 
     fun toggleMute() {

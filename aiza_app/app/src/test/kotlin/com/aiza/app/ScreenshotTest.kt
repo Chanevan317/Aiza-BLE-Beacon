@@ -111,6 +111,8 @@ abstract class ScreenshotFlow {
         rule.onNodeWithContentDescription("Settings").performClick(); settle(700)
         scrollTo("Researcher mode"); tap("Researcher mode"); settle(700)
         shot("r1_researcher_empty")
+        tap("Step & heading test"); settle(700); shot("r1b_motion_test")
+        rule.onNodeWithContentDescription("Back").performClick(); settle(700)
         tap("New trial"); settle(700)
         rule.onNode(hasText("Place (e.g. Home 1, Office)") and hasSetTextAction()).performTextInput("Home 1")
         rule.onNode(hasText("Room") and hasSetTextAction()).performTextInput("Living room")
