@@ -2,6 +2,8 @@ package com.aiza.app.data
 
 import android.content.Context
 import com.aiza.data.tags.DataStoreTagRepository
+import com.aiza.data.trial.TrialStore
+import com.aiza.platform.sensors.MotionSensors
 import com.aiza.data.tags.DemoTagRepository
 import com.aiza.data.tags.Settings
 import com.aiza.data.tags.SettingsRepository
@@ -45,4 +47,11 @@ class AppContainer(context: Context) {
     val tagController: TagController = DemoTagController()
     val discovery: TagDiscovery = DemoTagDiscovery()
     val proximity: ProximitySource = DemoProximitySource()
+
+    val motionSensors = MotionSensors(context)
+    val trialStore = TrialStore(context)
+    val trialRecorder = TrialRecorder(
+        appScope, trialStore, motionSensors,
+        appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?",
+    )
 }

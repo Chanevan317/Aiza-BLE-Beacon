@@ -23,7 +23,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.aiza.app.data.AppContainer
 import com.aiza.app.ui.home.HomeScreen
+import com.aiza.app.ui.researcher.ConsentScreen
+import com.aiza.app.ui.researcher.NewTrialScreen
 import com.aiza.app.ui.researcher.ResearcherScreen
+import com.aiza.app.ui.researcher.TrialDetailScreen
 import com.aiza.app.ui.search.SearchScreen
 import com.aiza.app.ui.settings.SettingsScreen
 import com.aiza.app.ui.splash.AizaSplash
@@ -41,6 +44,9 @@ import com.aiza.app.ui.permissions.PermissionsScreen
 @Serializable object SettingsRoute
 @Serializable object ResearcherRoute
 @Serializable object PermissionsRoute
+@Serializable object NewTrialRoute
+@Serializable object ConsentRoute
+@Serializable data class TrialRoute(val id: String)
 
 @Composable
 fun AizaRoot(container: AppContainer) {
@@ -94,7 +100,14 @@ private fun AizaNavHost() {
             enterTransition = { scaleIn(tween(dur), initialScale = 0.92f) + fadeIn(tween(dur)) },
             popExitTransition = { scaleOut(tween(dur), targetScale = 0.92f) + fadeOut(tween(dur)) },
         ) { entry ->
-            SearchScreen(address = entry.toRoute<SearchRoute>().address, onClose = { nav.popBackStack() })
+            SearchScreen(
+                address = entry.toRoute<SearchRoute>().address,
+                onClose = { nav.popBackStack() },
+                onTrialFinished = { id ->
+                    if (id != null) nav.navigate(TrialRoute(id)) { popUpTo<ResearcherRoute>() }
+                    else nav.popBackStack<ResearcherRoute>(inclusive = false)
+                },
+            )
         }
         composable<SettingsRoute> {
             SettingsScreen(
@@ -103,7 +116,21 @@ private fun AizaNavHost() {
                 onPermissions = { nav.navigate(PermissionsRoute) },
             )
         }
-        composable<ResearcherRoute> { ResearcherScreen(onBack = { nav.popBackStack() }) }
+        composable<ResearcherRoute> {
+            ResearcherScreen(
+                onBack = { nav.popBackStack() },
+                onNewTrial = { nav.navigate(NewTrialRoute) },
+                onOpenTrial = { nav.navigate(TrialRoute(it)) },
+            )
+        }
+        composable<NewTrialRoute> { NewTrialScreen(onBack = { nav.popBackStack() }, onContinue = { nav.navigate(ConsentRoute) }) }
+        composable<ConsentRoute> {
+            ConsentScreen(
+                onBack = { nav.popBackStack() },
+                onStarted = { address -> nav.navigate(SearchRoute(address)) { popUpTo<ResearcherRoute>() } },
+            )
+        }
+        composable<TrialRoute> { entry -> TrialDetailScreen(entry.toRoute<TrialRoute>().id, onBack = { nav.popBackStack() }) }
         composable<PermissionsRoute> { PermissionsScreen(onBack = { nav.popBackStack() }) }
     }
 }

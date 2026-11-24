@@ -1,6 +1,9 @@
 package com.aiza.app
 
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -31,6 +34,13 @@ abstract class ScreenshotFlow {
     private fun shot(name: String) = rule.onRoot().captureRoboImage("build/outputs/roborazzi/${name}_$suffix.png", RoborazziOptions())
 
     private fun has(text: String) = rule.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty()
+
+    /** performScrollTo needs the auto-advancing clock; switch it on just for the scroll. */
+    private fun scrollTo(text: String) {
+        rule.mainClock.autoAdvance = true
+        rule.onNodeWithText(text, useUnmergedTree = true).performScrollTo()
+        rule.mainClock.autoAdvance = false
+    }
 
     private fun tap(text: String) = rule.onNodeWithText(text, useUnmergedTree = true).performClick()
 
@@ -89,6 +99,30 @@ abstract class ScreenshotFlow {
         tap("Start active search"); settle(2_500); shot("07_search")
         settle(12_000); shot("08_search_wedge")
         settle(25_000); shot("09_search_hot")
+    }
+
+    @Test
+    fun researcher() {
+        settle(3_000)
+        waitFor { has("Welcome to AIZA") || has("Your tags") }
+        if (has("Welcome to AIZA")) { tap("Skip"); settle(700); tap("Not now") }
+        waitFor { has("Your tags") }
+        settle(500)
+        rule.onNodeWithContentDescription("Settings").performClick(); settle(700)
+        scrollTo("Researcher mode"); tap("Researcher mode"); settle(700)
+        shot("r1_researcher_empty")
+        tap("New trial"); settle(700)
+        rule.onNode(hasText("Place (e.g. Home 1, Office)") and hasSetTextAction()).performTextInput("Home 1")
+        rule.onNode(hasText("Room") and hasSetTextAction()).performTextInput("Living room")
+        settle(300); shot("r2_new_trial")
+        tap("Continue to consent"); settle(700); shot("r3_consent")
+        scrollTo("I have read this and agree to take part."); tap("I have read this and agree to take part.")
+        tap("I agree — start the trial"); settle(3_000); shot("r4_trial_running")
+        tap("Checkpoint"); settle(1_000)
+        tap("Found it")
+        waitFor { has("Time to find") }
+        settle(700); shot("r5_trial_detail")
+        rule.onNodeWithContentDescription("Back").performClick(); settle(700); shot("r6_researcher_list")
     }
 }
 

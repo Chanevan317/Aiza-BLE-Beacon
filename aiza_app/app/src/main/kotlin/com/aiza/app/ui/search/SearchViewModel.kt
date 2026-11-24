@@ -32,6 +32,11 @@ data class SearchState(
 )
 
 class SearchViewModel(private val container: AppContainer, private val address: String) : ViewModel() {
+    private val recorder = container.trialRecorder
+    /** Set when this search is a research trial (FR-TRL-03); null for normal use. */
+    val trial = recorder.live.value?.meta
+    val trialLive = recorder.live
+    private var lastWedge: Float? = null
     private val _state = MutableStateFlow(SearchState())
     val state: StateFlow<SearchState> = _state
 
@@ -45,6 +50,7 @@ class SearchViewModel(private val container: AppContainer, private val address: 
             container.tagController.setFindMode(address, true) // FR-HC-01
             var startNs: Long? = null
             container.proximity.rssi(address).collect { sample ->
+                recorder.sample(sample)
                 val first = startNs ?: sample.timestampNanos.also { startNs = it }
                 val reading = filter.add(sample) ?: return@collect
                 onReading(reading.filteredRssiDbm, settings.demoMode, (reading.timestampNanos - first) / 1e9)
@@ -73,17 +79,33 @@ class SearchViewModel(private val container: AppContainer, private val address: 
         }
         // The real wedge comes from the direction core (FR-DIR-03..06), which is not built yet.
         // In demo mode a fake wedge shows the design: appears after a while, hides when very close.
-        val wedge = if (demo && elapsedS > 10 && proximity != Proximity.VERY_CLOSE) 18f else null
+        val demoWedge = if (demo && elapsedS > 10 && proximity != Proximity.VERY_CLOSE) 18f else null
+        // Without-wedge trials never show it (SRS §6.2 "with vs without wedge").
+        val wedge = if (trial != null && !trial.wedgeShown) null else demoWedge
+        if (wedge != lastWedge) { recorder.wedge(wedge, if (wedge != null) 0.93f else 0f); lastWedge = wedge }
         _state.update { it.copy(rssiDbm = recent, heat = heat, proximity = proximity, heading = heading, wedgeDeg = wedge) }
     }
 
-    fun toggleMute() = _state.update { it.copy(muted = !it.muted) }
+    fun toggleMute() {
+        _state.update { it.copy(muted = !it.muted) }
+        recorder.event("mute", if (_state.value.muted) "on" else "off")
+    }
 
     fun toggleRing() = viewModelScope.launch {
         val on = !_state.value.ringing
         _state.update { it.copy(ringing = on) }
+        recorder.event("ring", if (on) "on" else "off")
         container.tagController.ring(address, on)
     }
+
+    fun checkpoint(): String = recorder.checkpoint()
+
+    /** Ends the trial and reports its ID (null if discarded). */
+    fun finishTrial(outcome: com.aiza.data.trial.TrialOutcome, discard: Boolean, done: (String?) -> Unit) =
+        container.appScope.launch {
+            val meta = recorder.finish(outcome, discard)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { done(meta?.trialId) }
+        }
 
     override fun onCleared() {
         // Back to normal advertising when leaving the find screen (FR-HC-01).

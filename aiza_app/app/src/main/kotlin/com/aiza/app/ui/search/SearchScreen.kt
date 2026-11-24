@@ -1,5 +1,22 @@
 package com.aiza.app.ui.search
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import com.aiza.app.data.TrialLive
+import com.aiza.data.trial.TrialOutcome
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.VibrationEffect
@@ -20,7 +37,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -85,20 +101,32 @@ private fun heatColor(heat: Float): Color {
 }
 
 @Composable
-fun SearchScreen(address: String, onClose: () -> Unit) {
+fun SearchScreen(address: String, onClose: () -> Unit, onTrialFinished: (String?) -> Unit = { onClose() }) {
     val vm = aizaViewModel(key = "search-$address") { SearchViewModel(it, address) }
     val s by vm.state.collectAsStateWithLifecycle()
     val heat by animateFloatAsState(s.heat, tween(400), label = "heat")
     val color by animateColorAsState(heatColor(heat), tween(400), label = "heat-color")
 
     Feedback(s, heat)
+    val live by vm.trialLive.collectAsStateWithLifecycle()
+    var endDialog by remember { mutableStateOf(false) }
+    val close = { if (vm.trial != null && live != null) endDialog = true else onClose() }
+    BackHandler(enabled = vm.trial != null && live != null) { endDialog = true }
 
     Box(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.28f), Color.Transparent, color.copy(alpha = 0.12f)))),
     ) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-            TopRow(s, onClose, vm::toggleMute)
+            TopRow(s, close, vm::toggleMute)
+            live?.let { l ->
+                VSpace(10.dp)
+                TrialBar(
+                    l,
+                    onCheckpoint = { vm.checkpoint() },
+                    onFound = { vm.finishTrial(TrialOutcome.FOUND, discard = false, done = onTrialFinished) },
+                )
+            }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Radar(s, heat, color)
             }
@@ -110,6 +138,11 @@ fun SearchScreen(address: String, onClose: () -> Unit) {
             VSpace(12.dp)
         }
     }
+    if (endDialog) EndTrialDialog(
+        onNotFound = { endDialog = false; vm.finishTrial(TrialOutcome.GAVE_UP, discard = false, done = onTrialFinished) },
+        onDiscard = { endDialog = false; vm.finishTrial(TrialOutcome.GAVE_UP, discard = true, done = onTrialFinished) },
+        onDismiss = { endDialog = false },
+    )
 }
 
 @Composable
@@ -132,6 +165,64 @@ private fun TopRow(s: SearchState, onClose: () -> Unit, onMute: () -> Unit) {
             )
         }
     }
+}
+
+/** Researcher strip during a trial: recording status, timer, checkpoint and found buttons (FR-TRL-02/03). */
+@Composable
+private fun TrialBar(live: TrialLive, onCheckpoint: () -> Unit, onFound: () -> Unit) {
+    val blink = rememberInfiniteTransition(label = "rec").animateFloat(
+        1f, 0.25f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "rec-dot",
+    )
+    var checkpoints by remember { mutableIntStateOf(0) }
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(10.dp).graphicsLayer { alpha = blink.value }.background(MaterialTheme.colorScheme.error, CircleShape))
+                HSpace(8.dp)
+                Text("REC  ${live.meta.trialId}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                Text(formatTrialTime(live.elapsedMs), style = MaterialTheme.typography.titleMedium)
+            }
+            Text(
+                "${live.meta.volunteerCode} · RSSI ${live.rssi} · motion ${live.motion} · heading ${live.heading}" +
+                    if (live.meta.wedgeShown) "" else " · no wedge",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            VSpace(10.dp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    onClick = { onCheckpoint(); checkpoints++ },
+                    modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp),
+                ) { Icon(Icons.Rounded.Flag, null); HSpace(6.dp); Text(if (checkpoints == 0) "Checkpoint" else "Checkpoint C${checkpoints + 1}", maxLines = 1) }
+                Button(
+                    onClick = onFound, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AizaTheme.extra.success, contentColor = Color.White),
+                ) { Icon(Icons.Rounded.Check, null); HSpace(6.dp); Text("Found it", maxLines = 1) }
+            }
+        }
+    }
+}
+
+private fun formatTrialTime(ms: Long): String = "%d:%02d".format(ms / 60_000, (ms / 1000) % 60)
+
+@Composable
+private fun EndTrialDialog(onNotFound: () -> Unit, onDiscard: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("End this trial?") },
+        text = { Text("Save it as \"not found\", or discard it if it was a false start.") },
+        confirmButton = { TextButton(onNotFound) { Text("Save as not found") } },
+        dismissButton = {
+            Row {
+                TextButton(onDiscard, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") }
+                TextButton(onDismiss) { Text("Keep going") }
+            }
+        },
+    )
 }
 
 /** Pulse speed, orb colour and wedge all react to the signal (FR-HC-03/04, FR-DIR-04/05). */

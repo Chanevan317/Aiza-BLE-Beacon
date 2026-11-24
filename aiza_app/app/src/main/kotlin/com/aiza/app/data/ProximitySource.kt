@@ -1,5 +1,6 @@
 package com.aiza.app.data
 
+import android.os.SystemClock
 import com.aiza.core.model.RssiSample
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -19,7 +20,8 @@ interface ProximitySource {
  */
 class DemoProximitySource : ProximitySource {
     override fun rssi(address: String): Flow<RssiSample> = flow {
-        val start = System.nanoTime()
+        // Same clock as ScanResult.timestampNanos and SensorEvent.timestamp (NFR-DAT-01).
+        val start = SystemClock.elapsedRealtimeNanos()
         var n = 0L
         while (true) {
             val t = n * 0.05 // simulated seconds since the search started
