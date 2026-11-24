@@ -62,6 +62,14 @@ class WalkSimulator(
         return this
     }
 
+    /** Turn a full circle (plus a bit) on the spot at [degPerS], e.g. a guided spin. */
+    fun spin(degPerS: Double = 30.0, totalDeg: Double = 380.0): WalkSimulator {
+        val n = (totalDeg / degPerS * HZ).toInt()
+        val from = heading
+        repeat(n) { i -> heading = (from + totalDeg * (i + 1) / n) % 360; tick(0.0, 0.0) }
+        return this
+    }
+
     private fun run(seconds: Double, speed: Double, amp: Double) = repeat((seconds * HZ).toInt()) { tick(speed, amp) }
 
     private fun tick(speed: Double, amp: Double) {

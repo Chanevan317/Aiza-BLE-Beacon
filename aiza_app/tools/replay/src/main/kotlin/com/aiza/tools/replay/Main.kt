@@ -2,6 +2,8 @@ package com.aiza.tools.replay
 
 import com.aiza.core.direction.WedgeEngine
 import com.aiza.core.direction.pdr.HeadingFilter
+import com.aiza.core.logformat.EventRow
+import com.aiza.core.logformat.SampleRow
 import com.aiza.core.logformat.TrialLogCsv
 import java.io.File
 import kotlin.math.abs
@@ -41,10 +43,22 @@ fun main(args: Array<String>) {
     var decisions = 0
     var shown = 0
     var hits = 0
+    var spins = 0
     log.useLines { lines ->
-        lines.mapNotNull(TrialLogCsv::decode).forEach { s ->
+        lines.mapNotNull(TrialLogCsv::decodeRow).forEach { row ->
+            // Guided spins: start/cancel from the logged taps; finish when complete, exactly as the app does.
+            if (row is EventRow) {
+                when (row.name) { "spin_start" -> engine.startSpin(); "spin_cancel" -> engine.cancelSpin() }
+                return@forEach
+            }
+            val s = (row as? SampleRow)?.sample ?: return@forEach
             samples++
-            val d = engine.update(s) ?: return@forEach
+            val d0 = engine.update(s)
+            if (engine.activeSpin?.complete == true) engine.finishSpin()?.let {
+                spins++
+                println("spin: strongest %.0f°, contrast %.1f dB, %s".format(it.bearingDeg, it.contrastDb, if (it.clear) "used" else "not clear"))
+            }
+            val d = d0 ?: return@forEach
             decisions++
             if (!d.shown) return@forEach
             shown++
@@ -61,6 +75,11 @@ fun main(args: Array<String>) {
     engine.stretches.forEachIndexed { i, st ->
         println("  stretch ${i + 1}: %3.0f° %.1f m %2d steps %-8s %s".format(
             st.headingDeg, st.lengthM, st.steps, st.label, st.rssiDeltaDb?.let { "%+.1f dB".format(it) } ?: ""))
+    }
+    if (spins > 0) {
+        println("spin start area ended: ${engine.spinAreaEnd?.name?.lowercase() ?: "still shown"}")
+        println("spin vs first wedge after it (from the spin spot): " +
+            (engine.spinVsWedgeDeg.joinToString { "%.0f°".format(it) }.ifEmpty { "no wedge after the spin" }))
     }
     println("no-wedge rate: %.0f%% of decisions".format(if (decisions == 0) 0.0 else 100.0 * (decisions - shown) / decisions))
     when {

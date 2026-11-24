@@ -4,6 +4,7 @@ import com.aiza.core.direction.pdr.HeadingFilter
 import com.aiza.core.direction.pdr.PdrTracker
 import com.aiza.core.direction.pdr.Stretch
 import com.aiza.core.direction.pdr.StretchLabeler
+import com.aiza.core.model.HeadingSample
 import com.aiza.core.model.HotColdReading
 import com.aiza.core.model.NoWedgeReason
 import com.aiza.core.model.PdrState
@@ -46,6 +47,12 @@ data class WedgeConfig(
     val moveLimitM: Float = 3f,
     /** ...or when the tag is probably within this distance. */
     val closeM: Float = 1f,
+    /**
+     * Strength of a spin's starting estimate (FR-SPN-02): log-weight bonus = κ·cos(angle from the spin bearing),
+     * with κ growing with the spin's contrast up to this cap. Capped low so it can never show a wedge by itself
+     * (a 120° window holds at most ~55% under it) and walking evidence soon outweighs it.
+     */
+    val spinMaxKappa: Float = 1f,
 )
 
 /**
@@ -84,6 +91,31 @@ class WedgeEngine(private val cfg: WedgeConfig = WedgeConfig()) : DirectionEngin
     private var shownY = 0f
     private var contradicted = false
 
+    // Guided spin (FR-SPN-01/02).
+    private var spin: SpinAnalyzer? = null
+    private val spinPrior: DoubleArray
+    /** The spin in progress, for the UI; null when not spinning. */
+    val activeSpin: SpinAnalyzer? get() = spin
+    /** The last spin applied as a starting estimate. */
+    var spinResult: SpinResult? = null; private set
+
+    /** Why the spin's dashed start area went away. */
+    enum class AreaEnd { WEDGE_SHOWN, WALKED_AWAY, COLDER, NEW_SPIN }
+
+    /**
+     * Compass bearing of the spin's 120° "start here" area while it is still valid; null otherwise.
+     * It ends when the wedge appears, after ~3 m of walking from the spin spot, or when a straight stretch walked
+     * into it got colder (the same rule that hides the wedge, FR-DIR-06).
+     */
+    var spinAreaDeg: Float? = null; private set
+    var spinAreaEnd: AreaEnd? = null; private set
+    private var spinAtX = 0f
+    private var spinAtY = 0f
+    private var spinChecked = false
+
+    /** For research: angle between each clear spin and the first wedge shown after it (0 = perfect agreement). */
+    val spinVsWedgeDeg = mutableListOf<Float>()
+
     /** Latest values, for the UI and logs. */
     var lastReading: HotColdReading? = null; private set
     var lastDecision: WedgeDecision? = null; private set
@@ -103,6 +135,7 @@ class WedgeEngine(private val cfg: WedgeConfig = WedgeConfig()) : DirectionEngin
         }
         cx = xs.toFloatArray(); cy = ys.toFloatArray()
         sum = DoubleArray(cx.size); sumSq = DoubleArray(cx.size); weight = DoubleArray(cx.size)
+        spinPrior = DoubleArray(cx.size)
     }
 
     override fun reset() {
@@ -110,6 +143,8 @@ class WedgeEngine(private val cfg: WedgeConfig = WedgeConfig()) : DirectionEngin
         sum.fill(0.0); sumSq.fill(0.0); weight.fill(0.0)
         evidence = 0; pending.clear(); lastEvidenceX = 0f; lastEvidenceY = 0f
         aboveSince = null; shown = false; contradicted = false
+        spin = null; spinPrior.fill(0.0); spinResult = null
+        spinAreaDeg = null; spinAreaEnd = null; spinChecked = false; spinVsWedgeDeg.clear()
         lastReading = null; lastDecision = null; estimatedDistanceM = null
     }
 
@@ -117,8 +152,10 @@ class WedgeEngine(private val cfg: WedgeConfig = WedgeConfig()) : DirectionEngin
     override fun update(sample: Sample): WedgeDecision? {
         if (sample !is RssiSample) {
             pdr.add(sample)?.let { step -> stretchLabeler.step(step, pdr.state.turning)?.let(::checkStretch) }
+            if (sample is HeadingSample) spin?.let { s -> pdr.state.headingDeg?.let { s.heading(sample.timestampNanos, it) } }
             return null
         }
+        spin?.rssi(sample.rssiDbm)
         val reading = hotCold.add(sample) ?: return null
         lastReading = reading
         val p = pdr.state
@@ -132,6 +169,35 @@ class WedgeEngine(private val cfg: WedgeConfig = WedgeConfig()) : DirectionEngin
             }
         }
         return decide(reading.timestampNanos, p).also { lastDecision = it }
+    }
+
+    /** Starts recording a guided spin (FR-SPN-01). Readings during it are ignored by the walking filter (turning). */
+    fun startSpin() { spin = SpinAnalyzer() }
+
+    fun cancelSpin() { spin = null }
+
+    /**
+     * Ends the spin and, if it found a clear direction, adds it as a starting estimate centred on where the user
+     * stood (FR-SPN-02). A later spin replaces an earlier one. Returns the result either way.
+     */
+    fun finishSpin(): SpinResult? {
+        val s = spin ?: return null
+        spin = null
+        val r = s.result()
+        spinPrior.fill(0.0)
+        if (spinAreaDeg != null) endArea(AreaEnd.NEW_SPIN)
+        spinResult = null
+        if (r.clear) {
+            val p = pdr.state
+            val kappa = (cfg.spinMaxKappa * ((r.contrastDb - SpinAnalyzer.MIN_CONTRAST_DB) / 4f).coerceIn(0.25f, 1f)).toDouble()
+            for (i in cx.indices) {
+                val b = Math.toDegrees(atan2((cx[i] - p.x).toDouble(), (cy[i] - p.y).toDouble())).toFloat()
+                spinPrior[i] = kappa * kotlin.math.cos(Math.toRadians(HeadingFilter.angleDiff(b, r.bearingDeg).toDouble()))
+            }
+            spinResult = r
+            spinAreaDeg = r.bearingDeg; spinAreaEnd = null; spinAtX = p.x; spinAtY = p.y; spinChecked = false
+        }
+        return r
     }
 
     private fun addEvidence(rssi: Float, x: Float, y: Float) {
@@ -153,7 +219,7 @@ class WedgeEngine(private val cfg: WedgeConfig = WedgeConfig()) : DirectionEngin
             val mean = sum[i] / n
             val spread = max(0.0, sumSq[i] - sum[i] * sum[i] / n) // Σ(q − mean)²
             val prior = (mean - cfg.rssiAt1mDbm).let { it * it } / p2
-            weight[i] = -spread / s2 - prior
+            weight[i] = -spread / s2 - prior + spinPrior[i]
             if (weight[i] > best) best = weight[i]
         }
         var total = 0.0
@@ -162,6 +228,7 @@ class WedgeEngine(private val cfg: WedgeConfig = WedgeConfig()) : DirectionEngin
     }
 
     private fun decide(t: Long, p: PdrState): WedgeDecision {
+        if (spinAreaDeg != null && hypot(p.x - spinAtX, p.y - spinAtY) > cfg.moveLimitM) endArea(AreaEnd.WALKED_AWAY)
         if (evidence < cfg.minEvidence) {
             hide()
             return WedgeDecision(t, null, 0f, NoWedgeReason.NOT_ENOUGH_DATA)
@@ -220,13 +287,48 @@ class WedgeEngine(private val cfg: WedgeConfig = WedgeConfig()) : DirectionEngin
         }
         if (reason != null) return WedgeDecision(t, null, prob, reason)
         shown = true; shownX = p.x; shownY = p.y
+        // First wedge after a clear spin: did the spin point the right way? Compare like with like: the filter's
+        // best 120° direction as seen from the spot where the user spun.
+        spinResult?.let { sr ->
+            if (!spinChecked) {
+                spinChecked = true
+                spinVsWedgeDeg += abs(HeadingFilter.angleDiff(bestWindow(spinAtX, spinAtY).first, sr.bearingDeg))
+            }
+        }
+        if (spinAreaDeg != null) endArea(AreaEnd.WEDGE_SHOWN)
         return WedgeDecision(t, centre, prob)
+    }
+
+    /** Best 120° window of the current posterior as seen from (x, y): centre bearing and probability inside. */
+    private fun bestWindow(x: Float, y: Float): Pair<Float, Float> {
+        val bins = DoubleArray(BINS)
+        for (i in cx.indices) {
+            val b = (Math.toDegrees(atan2((cx[i] - x).toDouble(), (cy[i] - y).toDouble())) + 360.0) % 360.0
+            bins[(b / BIN_DEG).toInt() % BINS] += weight[i]
+        }
+        var bestStart = 0
+        var bestMass = -1.0
+        for (s in 0 until BINS) {
+            var m = 0.0
+            for (k in 0 until WINDOW) m += bins[(s + k) % BINS]
+            if (m > bestMass) { bestMass = m; bestStart = s }
+        }
+        return ((bestStart * BIN_DEG + WedgeDecision.WEDGE_WIDTH_DEG / 2f) % 360f) to bestMass.toFloat()
     }
 
     private fun hide() { shown = false; contradicted = false }
 
+    private fun endArea(why: AreaEnd) { spinAreaDeg = null; spinAreaEnd = why }
+
     /** FR-DIR-06: a finished straight stretch that disagrees with the shown wedge hides it. */
     private fun checkStretch(s: Stretch) {
+        // A colder stretch walked into the spin's start area: the spin was probably fooled (e.g. a reflection).
+        // Clear the area and drop the spin's starting lean so walking evidence decides alone.
+        spinAreaDeg?.let { a ->
+            if (s.label == Trend.COLDER && abs(HeadingFilter.angleDiff(s.headingDeg, a)) <= 60f) {
+                endArea(AreaEnd.COLDER); spinPrior.fill(0.0)
+            }
+        }
         val centre = lastDecision?.centreDeg ?: return
         if (!shown) return
         val off = abs(HeadingFilter.angleDiff(s.headingDeg, centre))

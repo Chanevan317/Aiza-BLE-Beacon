@@ -22,17 +22,20 @@ import com.aiza.core.direction.pdr.HeadingFilter
 import kotlin.math.roundToInt
 import com.aiza.app.ui.components.CompassDial
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.draw.alpha
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -98,7 +101,7 @@ import kotlinx.coroutines.delay
 
 /** Colour on the cold → hot scale. */
 @Composable
-private fun heatColor(heat: Float): Color {
+internal fun heatColor(heat: Float): Color {
     val scale = AizaTheme.extra.heatScale
     val x = heat.coerceIn(0f, 1f) * (scale.size - 1)
     val i = x.toInt().coerceAtMost(scale.size - 2)
@@ -137,14 +140,19 @@ fun SearchScreen(address: String, onClose: () -> Unit, onTrialFinished: (String?
             }
             WalkStats(s)
             VSpace(10.dp)
-            DirectionHint(s.wedgeDeg != null, s.proximity == Proximity.VERY_CLOSE, s.turning)
+            DirectionHint(hintMode(s), s.spin?.coverage ?: 0f)
             VSpace(16.dp)
             HeatBar(heat)
             VSpace(20.dp)
-            Actions(s.ringing, vm::toggleRing)
+            Actions(s.ringing, vm::toggleRing, spinning = s.spin != null, onSpin = vm::startSpin, onCancelSpin = vm::cancelSpin)
             VSpace(12.dp)
         }
     }
+    // A short buzz when turning into the spin's start area.
+    val haptic = LocalHapticFeedback.current
+    val facingArea = hintMode(s) == Hint.FACING_AREA
+    LaunchedEffect(facingArea) { if (facingArea) haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
+    BackHandler(enabled = s.spin != null) { vm.cancelSpin() }
     if (endDialog) EndTrialDialog(
         onNotFound = { endDialog = false; vm.finishTrial(TrialOutcome.GAVE_UP, discard = false, done = onTrialFinished) },
         onDiscard = { endDialog = false; vm.finishTrial(TrialOutcome.GAVE_UP, discard = true, done = onTrialFinished) },
@@ -253,7 +261,7 @@ private fun EndTrialDialog(onNotFound: () -> Unit, onDiscard: () -> Unit, onDism
 
 /** Pulse speed, orb colour and wedge all react to the signal (FR-HC-03/04, FR-DIR-04/05). */
 @Composable
-private fun Radar(s: SearchState, heat: Float, color: Color) {
+internal fun Radar(s: SearchState, heat: Float, color: Color) {
     val wedgeAlpha by animateFloatAsState(if (s.wedgeDeg != null) 1f else 0f, tween(900), label = "wedge") // fades, never pops
     // Unwrap so a change from 170° to −170° turns 20°, not 340° the long way round.
     var unwrapped by remember { mutableFloatStateOf(0f) }
@@ -261,6 +269,22 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
     val wedgeAngle by animateFloatAsState(unwrapped, tween(250), label = "wedge-angle")
     val outline = MaterialTheme.colorScheme.outlineVariant
     val onBg = MaterialTheme.colorScheme.onBackground
+    val area = MaterialTheme.colorScheme.primary
+    // Start area from a spin: fades out as the real wedge fades in.
+    val areaAlpha by animateFloatAsState(if (s.startAreaDeg != null && s.wedgeDeg == null) 1f else 0f, tween(900), label = "area")
+    var areaUnwrapped by remember { mutableFloatStateOf(0f) }
+    s.startAreaDeg?.let { a -> val rel = HeadingFilter.angleDiff(a, s.headingDeg ?: 0f); areaUnwrapped += HeadingFilter.angleDiff(rel, areaUnwrapped) }
+    val areaAngle by animateFloatAsState(areaUnwrapped, tween(250), label = "area-angle")
+    // Spin ring: each 5° slice in its signal colour once covered (FR-SPN-01).
+    val spin = s.spin
+    val emptySlice = outline.copy(alpha = 0.5f)
+    val sliceColors = spin?.bins?.let { bins ->
+        val v = bins.filter { !it.isNaN() }
+        val lo = v.minOrNull() ?: 0f
+        val hi = v.maxOrNull() ?: 0f
+        bins.map { b -> if (b.isNaN()) emptySlice else heatColor(if (hi - lo < 1f) 0.5f else ((b - lo) / (hi - lo)).coerceIn(0f, 1f)) }
+    }
+    val pulseAlpha by animateFloatAsState(if (spin != null) 0.25f else 1f, tween(400), label = "pulse")
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val d = minOf(maxWidth, maxHeight, 340.dp)
         Box(Modifier.size(d), contentAlignment = Alignment.Center) {
@@ -268,6 +292,28 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
                 val r = size.minDimension / 2
                 // Compass rings.
                 drawCircle(outline, r * 0.98f, style = Stroke(1.dp.toPx()))
+                // Spin start area: light and dashed, a starting hint only (FR-SPN-02).
+                if (areaAlpha > 0f) {
+                    val start = -90f + areaAngle - 60f
+                    val box = Size(2 * r * 0.98f, 2 * r * 0.98f)
+                    val tl = Offset(center.x - r * 0.98f, center.y - r * 0.98f)
+                    drawArc(area.copy(alpha = 0.14f * areaAlpha), start, 120f, useCenter = true, topLeft = tl, size = box)
+                    drawArc(
+                        area.copy(alpha = areaAlpha), start, 120f, useCenter = true, topLeft = tl, size = box,
+                        style = Stroke(2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 6.dp.toPx()))),
+                    )
+                }
+                // Spin ring on the outer edge, turning with the phone so the top is where you face.
+                if (sliceColors != null) {
+                    val w = 12.dp.toPx()
+                    val ringR = r - w / 2
+                    val box = Size(2 * ringR, 2 * ringR)
+                    val tl = Offset(center.x - ringR, center.y - ringR)
+                    val h = s.headingDeg ?: 0f
+                    sliceColors.forEachIndexed { i, c ->
+                        drawArc(c, -90f + i * 5f - h + 0.6f, 3.8f, useCenter = false, topLeft = tl, size = box, style = Stroke(w))
+                    }
+                }
                 // 120° wedge, centred on the likely direction (C-4).
                 if (wedgeAlpha > 0f) {
                     val start = -90f + wedgeAngle - 60f
@@ -285,7 +331,7 @@ private fun Radar(s: SearchState, heat: Float, color: Color) {
             }
             // Real compass card inside the outer ring (N always points north); bar on top = the person's front.
             CompassDial(s.headingDeg, Modifier.size(d * 0.9f), labelSize = 15.sp, frontSize = 16.dp, showLabels = s.settings.showCompass)
-            PulseRings(color, Modifier.size(d * 0.7f), rings = 3, periodMs = (2200 - 1700 * heat).toInt(), minRadiusFraction = 0.55f, filled = true)
+            PulseRings(color, Modifier.size(d * 0.7f).alpha(pulseAlpha), rings = 3, periodMs = (2200 - 1700 * heat).toInt(), minRadiusFraction = 0.55f, filled = true)
             Orb(s, color, Modifier.size(d * 0.42f))
         }
     }
@@ -330,33 +376,75 @@ private fun Orb(s: SearchState, color: Color, modifier: Modifier) {
     }
 }
 
+/** What the hint card under the radar says, most important first (FR-DIR-07, FR-SPN-01). */
+internal enum class Hint { VERY_CLOSE, SPINNING, SPIN_TOO_FAST, WEDGE, FACING_AREA, TURN_TO_AREA, SPIN_REJECTED, SPIN_UNCLEAR, TURNING, WALK }
+
+internal fun hintMode(s: SearchState): Hint {
+    val area = s.startAreaDeg
+    return when {
+        s.proximity == Proximity.VERY_CLOSE -> Hint.VERY_CLOSE
+        s.spin != null -> if (s.spin.tooFast) Hint.SPIN_TOO_FAST else Hint.SPINNING
+        s.wedgeDeg != null -> Hint.WEDGE
+        area != null && s.headingDeg != null ->
+            if (kotlin.math.abs(HeadingFilter.angleDiff(area, s.headingDeg)) <= 60f) Hint.FACING_AREA else Hint.TURN_TO_AREA
+        s.spinRejected -> Hint.SPIN_REJECTED
+        s.spinUnclear -> Hint.SPIN_UNCLEAR
+        s.turning -> Hint.TURNING
+        else -> Hint.WALK
+    }
+}
+
 @Composable
-private fun DirectionHint(wedge: Boolean, veryClose: Boolean, turning: Boolean) {
+internal fun DirectionHint(mode: Hint, coverage: Float = 0f) {
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        AnimatedContent(if (veryClose) 2 else if (wedge) 1 else if (turning) 3 else 0, label = "hint") { mode ->
-            val w = mode == 1
+        AnimatedContent(mode, label = "hint") { m ->
             Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    when (mode) { 3 -> Icons.Rounded.Autorenew; 2 -> Icons.Rounded.NotificationsActive; 1 -> Icons.Rounded.Explore; else -> Icons.AutoMirrored.Rounded.DirectionsWalk },
-                    null, tint = MaterialTheme.colorScheme.primary,
+                    when (m) {
+                        Hint.VERY_CLOSE -> Icons.Rounded.NotificationsActive
+                        Hint.WEDGE, Hint.FACING_AREA, Hint.TURN_TO_AREA -> Icons.Rounded.Explore
+                        Hint.SPINNING, Hint.SPIN_TOO_FAST, Hint.TURNING -> Icons.Rounded.Autorenew
+                        Hint.SPIN_REJECTED, Hint.SPIN_UNCLEAR, Hint.WALK -> Icons.AutoMirrored.Rounded.DirectionsWalk
+                    },
+                    null, tint = if (m == Hint.SPIN_TOO_FAST) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
                 HSpace(12.dp)
                 Column {
                     Text(
-                        when (mode) { 3 -> "Turning"; 2 -> "It's within reach"; 1 -> "Likely this way"; else -> "Keep walking" },
+                        when (m) {
+                            Hint.VERY_CLOSE -> "It's within reach"
+                            Hint.SPINNING -> "Turn slowly on the spot"
+                            Hint.SPIN_TOO_FAST -> "A bit slower"
+                            Hint.WEDGE -> "Likely this way"
+                            Hint.FACING_AREA -> "You're facing it — walk this way"
+                            Hint.TURN_TO_AREA -> "Turn until the bar is in the dashed area"
+                            Hint.SPIN_REJECTED -> "Not this way — keep walking"
+                            Hint.SPIN_UNCLEAR -> "No clear direction"
+                            Hint.TURNING -> "Turning"
+                            Hint.WALK -> "Keep walking"
+                        },
                         style = MaterialTheme.typography.titleSmall,
+                        color = when (m) {
+                            Hint.SPIN_TOO_FAST -> MaterialTheme.colorScheme.error
+                            Hint.FACING_AREA -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
                     )
                     Text(
-                        when (mode) {
-                            3 -> "Readings are paused while you turn. Then walk in a straight line."
-                            2 -> "Look around you, or ring the tag and listen for it."
-                            1 -> "The highlighted area shows where your tag probably is."
-                            else -> "Walk around slowly. A direction appears once AIZA is confident."
+                        when (m) {
+                            Hint.VERY_CLOSE -> "Look around you, or ring the tag and listen for it."
+                            Hint.SPINNING, Hint.SPIN_TOO_FAST -> "Hold the phone in front of you and turn all the way round. ${(coverage * 100).toInt()}% done."
+                            Hint.WEDGE -> "The highlighted area shows where your tag probably is."
+                            Hint.FACING_AREA, Hint.TURN_TO_AREA -> "A good place to start, not a final answer. It firms up as you walk."
+                            Hint.SPIN_REJECTED -> "It got colder that way, so the turn was probably fooled by a reflection."
+                            Hint.SPIN_UNCLEAR -> "Just walk around; the direction will come from that."
+                            Hint.TURNING -> "Readings are paused while you turn. Then walk in a straight line."
+                            Hint.WALK -> "Walk around slowly. A direction appears once AIZA is confident."
                         },
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -387,17 +475,17 @@ private fun HeatBar(heat: Float) {
 
 /** Ring stays visible for the whole search (FR-HC-05). */
 @Composable
-private fun Actions(ringing: Boolean, onRing: () -> Unit) {
+private fun Actions(ringing: Boolean, onRing: () -> Unit, spinning: Boolean, onSpin: () -> Unit, onCancelSpin: () -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedButton(
-            onClick = { /* TODO FR-SPN-01 guided spin */ },
+            onClick = if (spinning) onCancelSpin else onSpin,
             modifier = Modifier.weight(1f).height(58.dp),
             shape = MaterialTheme.shapes.large,
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
-            Icon(Icons.Rounded.Autorenew, null)
+            Icon(if (spinning) Icons.Rounded.Close else Icons.Rounded.Autorenew, null)
             HSpace(6.dp)
-            Text("Turn slowly", maxLines = 1)
+            Text(if (spinning) "Stop turning" else "Turn slowly", maxLines = 1)
         }
         Button(
             onClick = onRing,

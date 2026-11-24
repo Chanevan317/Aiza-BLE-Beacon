@@ -3,6 +3,7 @@ package com.aiza.app.ui.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aiza.app.data.AppContainer
+import com.aiza.core.direction.SpinAnalyzer
 import com.aiza.core.direction.WedgeEngine
 import com.aiza.core.direction.pdr.HeadingFilter
 import com.aiza.core.model.RssiSample
@@ -42,6 +43,21 @@ data class SearchState(
     val turning: Boolean = false,
     /** Probability the tag is inside the best 120° window (shown to researchers only). */
     val probability: Float = 0f,
+    /** Guided spin in progress (FR-SPN-01); null otherwise. */
+    val spin: SpinUi? = null,
+    /** After a clear spin: compass bearing of the dashed 120° "start here" area, until the wedge takes over. */
+    val startAreaDeg: Float? = null,
+    /** The last spin found no clear direction (shown briefly). */
+    val spinUnclear: Boolean = false,
+    /** Walking into the start area got colder, so it was cleared (shown briefly). */
+    val spinRejected: Boolean = false,
+)
+
+data class SpinUi(
+    val coverage: Float = 0f,
+    /** Mean signal per 5° bin (compass), NaN where not yet covered. */
+    val bins: List<Float> = List(72) { Float.NaN },
+    val tooFast: Boolean = false,
 )
 
 class SearchViewModel(private val container: AppContainer, private val address: String) : ViewModel() {
@@ -58,6 +74,9 @@ class SearchViewModel(private val container: AppContainer, private val address: 
     /** Last wedge decision as a compass bearing; turned relative to the phone on every heading update (FR-DIR-08). */
     private var wedgeWorld: Float? = null
     private var lastPushNs = 0L
+    private var lastSpinPushNs = 0L
+    /** UI actions that touch the engine run on the engine's own coroutine, between samples. */
+    private val commands = java.util.concurrent.ConcurrentLinkedQueue<() -> Unit>()
 
     init {
         viewModelScope.launch {
@@ -69,13 +88,66 @@ class SearchViewModel(private val container: AppContainer, private val address: 
                 .flowOn(Dispatchers.Default)
                 .collect { sample ->
                     if (sample is RssiSample) recorder.sample(sample) // motion samples are logged by the recorder itself
+                    while (true) commands.poll()?.invoke() ?: break
                     val decision = engine.update(sample)
+                    engine.activeSpin?.let(::onSpin)
                     if (decision != null) onDecision(decision) else maybePushMotion()
                 }
         }
     }
 
     /** Motion-only update (steps, heading, turning), at most ~10 per second. */
+    private var unclearUntilNs = 0L
+    private var rejectedUntilNs = 0L
+    private var lastAreaEnd: WedgeEngine.AreaEnd? = null
+    private var loggedAgreements = 0
+
+    fun startSpin() {
+        if (_state.value.spin != null) return
+        _state.update { it.copy(spin = SpinUi(), startAreaDeg = null, spinUnclear = false, spinRejected = false) }
+        recorder.event("spin_start")
+        commands += { engine.startSpin() }
+    }
+
+    fun cancelSpin() {
+        if (_state.value.spin == null) return
+        commands += { engine.cancelSpin() }
+        recorder.event("spin_cancel")
+        _state.update { it.copy(spin = null) }
+    }
+
+    private fun onSpin(s: SpinAnalyzer) {
+        val now = engine.pdrState.timestampNanos
+        if (s.complete) {
+            val r = engine.finishSpin() ?: return
+            recorder.event("spin_end", "bearing %.0f contrast %.1f clear %s".format(r.bearingDeg, r.contrastDb, r.clear))
+            unclearUntilNs = if (r.clear) 0L else now + 6_000_000_000L
+            lastAreaEnd = engine.spinAreaEnd
+            _state.update { it.copy(spin = null, startAreaDeg = engine.spinAreaDeg, spinUnclear = !r.clear, spinRejected = false) }
+            return
+        }
+        if (now - lastSpinPushNs < 80_000_000L) return
+        lastSpinPushNs = now
+        _state.update { it.copy(spin = SpinUi(s.coverage, s.means().toList(), s.speedDegPerS > 60f)) }
+    }
+
+    /**
+     * The dashed start area is owned by the engine (so replays match): it ends when the wedge appears, after ~3 m of
+     * walking, or when walking into it got colder. Logs why it ended and how well the spin agreed with the wedge.
+     */
+    private fun syncSpinArea(now: Long): Triple<Float?, Boolean, Boolean> {
+        val end = engine.spinAreaEnd
+        if (end != lastAreaEnd) {
+            lastAreaEnd = end
+            if (end != null) recorder.event("spin_area_end", end.name.lowercase())
+            if (end == WedgeEngine.AreaEnd.COLDER) rejectedUntilNs = now + 6_000_000_000L
+        }
+        while (loggedAgreements < engine.spinVsWedgeDeg.size) {
+            recorder.event("spin_vs_wedge", "%.0f".format(engine.spinVsWedgeDeg[loggedAgreements++]))
+        }
+        return Triple(engine.spinAreaDeg, now < unclearUntilNs, now < rejectedUntilNs)
+    }
+
     private fun maybePushMotion() {
         val p = engine.pdrState
         val s = _state.value
@@ -83,7 +155,7 @@ class SearchViewModel(private val container: AppContainer, private val address: 
         lastPushNs = p.timestampNanos
         _state.update {
             it.copy(steps = p.steps, walkedM = p.distanceM, headingDeg = p.headingDeg, turning = p.turning,
-                wedgeDeg = relative(wedgeWorld, p.headingDeg))
+                wedgeDeg = relative(wedgeWorld, p.headingDeg)).withArea(syncSpinArea(p.timestampNanos))
         }
     }
 
@@ -117,9 +189,12 @@ class SearchViewModel(private val container: AppContainer, private val address: 
                 rssiDbm = recent, heat = heat, proximity = proximity, heading = heading,
                 wedgeDeg = relative(wedgeWorld, p.headingDeg), probability = d.probabilityInside,
                 steps = p.steps, walkedM = p.distanceM, headingDeg = p.headingDeg, turning = p.turning,
-            )
+            ).withArea(syncSpinArea(p.timestampNanos))
         }
     }
+
+    private fun SearchState.withArea(a: Triple<Float?, Boolean, Boolean>) =
+        copy(startAreaDeg = a.first, spinUnclear = a.second, spinRejected = a.third)
 
     /** Wedge centre relative to where the phone points (0 = straight ahead). */
     private fun relative(world: Float?, headingDeg: Float?): Float? {
