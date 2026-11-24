@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -10,7 +11,6 @@ android {
 
     defaultConfig {
         minSdk = 31
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -21,6 +21,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.datastore.preferences)
-    implementation(libs.kotlinx.coroutines.android)
+    api(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
 }

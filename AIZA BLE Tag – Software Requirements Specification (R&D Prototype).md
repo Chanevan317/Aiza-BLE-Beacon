@@ -114,6 +114,7 @@ Each requirement says what the system shall do, how important it is, and how it 
 | FR-SET-03 | The app shall unpair a tag on request and delete its stored data. | Must | Test |
 | FR-SET-04 | Holding the tag's button for 5 s shall factory-reset the tag and clear its bonds. | Must | Test |
 | FR-SET-05 | The tag shall beep or blink to confirm pairing, entering find mode and reset. | Should | Demo |
+| FR-SET-06 | Holding the tag's button for 2 s shall put the tag into pairing mode, confirmed by one beep; the tag stays pairable for 60 s or until paired. Holding on to 5 s continues to factory reset (FR-SET-04). | Must | Test |
 
 ### 3.2 Item status
 
@@ -128,7 +129,7 @@ Each requirement says what the system shall do, how important it is, and how it 
 | ID | Requirement | Priority | Verified by |
 | --- | --- | --- | --- |
 | FR-RNG-01 | Tapping Ring shall make a connected tag beep within 2 s; it stops on a second tap or after 30 s. | Must | Test |
-| FR-RNG-02 | A short press of the tag's button shall make the phone ring. | Should | Test |
+| FR-RNG-02 | A short press (under 1 s) of the tag's button shall make the phone ring while the phone is connected to the tag. | Should | Test |
 | FR-RNG-03 | Only the bonded phone shall be able to ring the tag or switch it to find mode. | Must | Test |
 
 ### 3.4 Left-behind alert
@@ -207,7 +208,7 @@ The app has six screens. All text supports large font sizes and screen-reader la
 | --- | --- | --- |
 | XIAO nRF52840 | — | BLE radio and processor; charges the LiPo over USB-C |
 | Piezo buzzer | GPIO through an NPN transistor, driven with PWM | Ring and audio cues |
-| Push button | GPIO with pull-up | Ring phone, pairing, factory reset |
+| Push button | GPIO with pull-up | Short press: ring phone (FR-RNG-02); hold 2 s: pairing mode (FR-SET-06); hold 5 s: factory reset (FR-SET-04) |
 | LiPo cell (3.7 V) | Battery pads on the XIAO | Power |
 | Battery sensing | Analogue input through a voltage divider | Battery level for the Battery Service |
 | On-board LED | Built in | Status cues |
