@@ -1,47 +1,71 @@
 package com.aiza.tools.replay
 
-import com.aiza.core.direction.HotColdFilter
-import com.aiza.core.direction.NoWedgeEngine
-import com.aiza.core.direction.pdr.PdrTracker
-import com.aiza.core.direction.pdr.StretchLabeler
+import com.aiza.core.direction.WedgeEngine
+import com.aiza.core.direction.pdr.HeadingFilter
 import com.aiza.core.logformat.TrialLogCsv
-import com.aiza.core.model.RssiSample
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.system.exitProcess
 
 /**
- * Replays a trial-log CSV through the same direction core the app uses (FR-TRL-06).
- * Usage: ./gradlew :tools:replay:run --args="path/to/trial.csv"
+ * Replays a trial through the same direction core the app uses (FR-TRL-06) and scores the wedge against
+ * ground truth (SRS §6.2). Accepts a trial folder (log.csv + meta.json, as exported) or a bare log.csv.
+ * Usage: ./gradlew :tools:replay:run --args="path/to/T-20261125-01"
+ *
+ * Ground truth: the tag is at the measured distance and compass bearing from the start point, and the walk
+ * starts at that point, so the true direction at any moment is from the tracked position to the tag.
  */
 fun main(args: Array<String>) {
-    val file = args.firstOrNull()?.let(::File)
-    if (file == null || !file.isFile) {
-        System.err.println("usage: replay <trial.csv>")
+    val arg = args.firstOrNull()?.let(::File)
+    val log = when {
+        arg == null -> null
+        arg.isDirectory -> File(arg, "log.csv")
+        else -> arg
+    }
+    if (log == null || !log.isFile) {
+        System.err.println("usage: replay <trial folder | log.csv>")
         exitProcess(2)
     }
-    val hotCold = HotColdFilter()
-    val engine = NoWedgeEngine()
-    val pdr = PdrTracker()
-    val stretches = StretchLabeler()
+    val meta = File(log.parentFile, "meta.json").takeIf { it.isFile }?.readText()
+    fun num(key: String) = meta?.let { Regex("\"$key\"\\s*:\\s*(-?[0-9.]+)").find(it)?.groupValues?.get(1)?.toDouble() }
+    val tagDistance = num("tagDistanceM")
+    val tagBearing = num("tagBearingDeg")
+    val tag = if (tagDistance != null && tagBearing != null)
+        Math.toRadians(tagBearing).let { tagDistance * sin(it) to tagDistance * cos(it) } else null
+
+    val engine = WedgeEngine()
     var samples = 0
-    var readings = 0
-    var wedgesShown = 0
     var decisions = 0
-    file.useLines { lines ->
+    var shown = 0
+    var hits = 0
+    log.useLines { lines ->
         lines.mapNotNull(TrialLogCsv::decode).forEach { s ->
             samples++
-            pdr.add(s)?.let { stretches.step(it, pdr.state.turning) }
-            if (s is RssiSample) hotCold.add(s)?.let { readings++; stretches.reading(it, pdr.state.turning) }
-            engine.update(s)?.let { decisions++; if (it.shown) wedgesShown++ }
+            val d = engine.update(s) ?: return@forEach
+            decisions++
+            if (!d.shown) return@forEach
+            shown++
+            if (tag != null) {
+                val p = engine.pdrState
+                val truth = Math.toDegrees(atan2(tag.first - p.x, tag.second - p.y)).toFloat()
+                if (abs(HeadingFilter.angleDiff(d.centreDeg!!, truth)) <= 60f) hits++
+            }
         }
     }
-    stretches.finish()
-    val p = pdr.state
-    println("steps=${p.steps} walked=%.1fm end=(%.1fE, %.1fN)".format(p.distanceM, p.x, p.y))
-    stretches.stretches.forEachIndexed { i, st ->
-        println("stretch ${i + 1}: %3.0f° %.1fm %2d steps %s %s".format(
+    val p = engine.pdrState
+    println("samples=$samples decisions=$decisions")
+    println("walked: ${p.steps} steps, %.1f m, ended at (%.1f E, %.1f N)".format(p.distanceM, p.x, p.y))
+    engine.stretches.forEachIndexed { i, st ->
+        println("  stretch ${i + 1}: %3.0f° %.1f m %2d steps %-8s %s".format(
             st.headingDeg, st.lengthM, st.steps, st.label, st.rssiDeltaDb?.let { "%+.1f dB".format(it) } ?: ""))
     }
-    println("samples=$samples hotColdReadings=$readings wedgeDecisions=$decisions wedgesShown=$wedgesShown")
-    // TODO: compare decisions with ground truth -> wedge hit rate, no-wedge rate, time to find (SRS §6.2)
+    println("no-wedge rate: %.0f%% of decisions".format(if (decisions == 0) 0.0 else 100.0 * (decisions - shown) / decisions))
+    when {
+        tag == null -> println("wedge hit rate: no ground truth (meta.json with tagDistanceM and tagBearingDeg needed)")
+        shown == 0 -> println("wedge hit rate: wedge never shown")
+        else -> println("wedge hit rate: %.1f%% (%d/%d decisions; chance is 33%%)".format(100.0 * hits / shown, hits, shown))
+    }
 }

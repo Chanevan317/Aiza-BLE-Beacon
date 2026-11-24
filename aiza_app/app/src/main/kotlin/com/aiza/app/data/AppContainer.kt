@@ -46,9 +46,9 @@ class AppContainer(context: Context) {
 
     val tagController: TagController = DemoTagController()
     val discovery: TagDiscovery = DemoTagDiscovery()
-    val proximity: ProximitySource = DemoProximitySource()
 
     val motionSensors = MotionSensors(context)
+    val proximity: ProximitySource = DemoProximitySource(motionSensors)
     val trialStore = TrialStore(context)
     val trialRecorder = TrialRecorder(
         appScope, trialStore, motionSensors,

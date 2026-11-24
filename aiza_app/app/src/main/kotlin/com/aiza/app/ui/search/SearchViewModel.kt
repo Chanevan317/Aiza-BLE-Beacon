@@ -3,12 +3,13 @@ package com.aiza.app.ui.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aiza.app.data.AppContainer
-import com.aiza.core.direction.HotColdFilter
+import com.aiza.core.direction.WedgeEngine
 import com.aiza.core.direction.pdr.HeadingFilter
-import com.aiza.core.direction.pdr.PdrTracker
-import com.aiza.core.direction.pdr.StretchLabeler
+import com.aiza.core.model.RssiSample
+import com.aiza.core.model.WedgeDecision
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.merge
 import com.aiza.data.tags.Settings
 import com.aiza.data.tags.Tag
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,8 @@ data class SearchState(
     val walkedM: Float = 0f,
     val headingDeg: Float? = null,
     val turning: Boolean = false,
+    /** Probability the tag is inside the best 120° window (shown to researchers only). */
+    val probability: Float = 0f,
 )
 
 class SearchViewModel(private val container: AppContainer, private val address: String) : ViewModel() {
@@ -46,52 +49,47 @@ class SearchViewModel(private val container: AppContainer, private val address: 
     /** Set when this search is a research trial (FR-TRL-03); null for normal use. */
     val trial = recorder.live.value?.meta
     val trialLive = recorder.live
-    private var lastWedge: Float? = null
     private val _state = MutableStateFlow(SearchState())
     val state: StateFlow<SearchState> = _state
 
-    private val filter = HotColdFilter() // FR-HC-03: median of each 250 ms window
+    /** Steps + heading, hot/cold and the wedge filter, all in the pure-Kotlin core (FR-DIR-01..06). */
+    private val engine = WedgeEngine()
     private val history = ArrayDeque<Float>()
-    private val pdr = PdrTracker()
-    private val stretches = StretchLabeler()
-    /** Demo only: world bearing of the fake tag, fixed when the demo wedge first appears. */
-    private var demoBearing: Float? = null
+    /** Last wedge decision as a compass bearing; turned relative to the phone on every heading update (FR-DIR-08). */
+    private var wedgeWorld: Float? = null
+    private var lastPushNs = 0L
 
     init {
-        // Step + heading tracking runs for the whole search (FR-DIR-01).
-        viewModelScope.launch {
-            var lastPush = 0L
-            container.motionSensors.samples().flowOn(Dispatchers.Default).collect { sample ->
-                val step = pdr.add(sample)
-                val p = pdr.state
-                if (step != null) synchronized(stretches) { stretches.step(step, p.turning) }
-                val s = _state.value
-                if (step != null || p.turning != s.turning || p.timestampNanos - lastPush > 100_000_000L) {
-                    lastPush = p.timestampNanos
-                    _state.update {
-                        it.copy(steps = p.steps, walkedM = p.distanceM, headingDeg = p.headingDeg, turning = p.turning,
-                            wedgeDeg = relativeWedge(it.wedgeDeg != null, p.headingDeg))
-                    }
-                }
-            }
-        }
         viewModelScope.launch {
             val settings = container.settingsRepository.settings.first()
             _state.update { it.copy(settings = settings, tag = container.tags.tag(address).first()) }
             container.tagController.setFindMode(address, true) // FR-HC-01
-            var startNs: Long? = null
-            container.proximity.rssi(address).collect { sample ->
-                recorder.sample(sample)
-                val first = startNs ?: sample.timestampNanos.also { startNs = it }
-                val reading = filter.add(sample) ?: return@collect
-                synchronized(stretches) { stretches.reading(reading, _state.value.turning) }
-                onReading(reading.filteredRssiDbm, settings.demoMode, (reading.timestampNanos - first) / 1e9)
-            }
+            // One ordered stream into one engine, on one coroutine: deterministic, no locking needed.
+            merge(container.motionSensors.samples(), container.proximity.rssi(address))
+                .flowOn(Dispatchers.Default)
+                .collect { sample ->
+                    if (sample is RssiSample) recorder.sample(sample) // motion samples are logged by the recorder itself
+                    val decision = engine.update(sample)
+                    if (decision != null) onDecision(decision) else maybePushMotion()
+                }
         }
     }
 
-    private fun onReading(rssi: Float, demo: Boolean, elapsedS: Double) {
-        // Smooth over ~1 s and compare with ~2 s earlier so the label doesn't flicker.
+    /** Motion-only update (steps, heading, turning), at most ~10 per second. */
+    private fun maybePushMotion() {
+        val p = engine.pdrState
+        val s = _state.value
+        if (p.steps == s.steps && p.turning == s.turning && p.timestampNanos - lastPushNs < 100_000_000L) return
+        lastPushNs = p.timestampNanos
+        _state.update {
+            it.copy(steps = p.steps, walkedM = p.distanceM, headingDeg = p.headingDeg, turning = p.turning,
+                wedgeDeg = relative(wedgeWorld, p.headingDeg))
+        }
+    }
+
+    private fun onDecision(d: WedgeDecision) {
+        val rssi = engine.lastReading?.filteredRssiDbm ?: return
+        // Hot/cold label: smooth over ~1 s and compare with ~2 s earlier so it doesn't flicker.
         history.addLast(rssi)
         while (history.size > 12) history.removeFirst()
         val recent = history.takeLast(4).average().toFloat()
@@ -109,25 +107,24 @@ class SearchViewModel(private val container: AppContainer, private val address: 
             heat > 0.3f -> Proximity.NEAR
             else -> Proximity.FAR
         }
-        // The real wedge comes from the direction core (FR-DIR-03..06), which is not built yet.
-        // In demo mode a fake wedge shows the design: appears after a while, hides when very close.
-        // The demo tag sits at a fixed compass bearing, so the wedge now turns as the user turns.
-        val showDemo = demo && elapsedS > 10 && proximity != Proximity.VERY_CLOSE
+        // Every decision is logged (shown or not) so trials can score the wedge even when it is switched off.
+        recorder.wedge(d.centreDeg, d.probabilityInside)
         // Without-wedge trials never show it (SRS §6.2 "with vs without wedge").
-        val show = showDemo && !(trial != null && !trial.wedgeShown)
-        val h = _state.value.headingDeg
-        if (show && demoBearing == null) demoBearing = ((h ?: 0f) + 18f) % 360f
-        // Log the wedge in world degrees (comparable with the ground-truth bearing) when it appears/disappears.
-        val world = if (show) demoBearing else null
-        if (world != lastWedge) { recorder.wedge(world, if (world != null) 0.93f else 0f); lastWedge = world }
-        _state.update { it.copy(rssiDbm = recent, heat = heat, proximity = proximity, heading = heading, wedgeDeg = relativeWedge(show, h)) }
+        wedgeWorld = if (trial != null && !trial.wedgeShown) null else d.centreDeg
+        val p = engine.pdrState
+        _state.update {
+            it.copy(
+                rssiDbm = recent, heat = heat, proximity = proximity, heading = heading,
+                wedgeDeg = relative(wedgeWorld, p.headingDeg), probability = d.probabilityInside,
+                steps = p.steps, walkedM = p.distanceM, headingDeg = p.headingDeg, turning = p.turning,
+            )
+        }
     }
 
-    /** Wedge centre relative to where the phone points; falls back to a fixed offset without a compass. */
-    private fun relativeWedge(show: Boolean, headingDeg: Float?): Float? {
-        if (!show) return null
-        val b = demoBearing ?: return null
-        return if (headingDeg == null) 18f else HeadingFilter.angleDiff(b, headingDeg)
+    /** Wedge centre relative to where the phone points (0 = straight ahead). */
+    private fun relative(world: Float?, headingDeg: Float?): Float? {
+        world ?: return null
+        return if (headingDeg == null) world else HeadingFilter.angleDiff(world, headingDeg)
     }
 
     fun toggleMute() {

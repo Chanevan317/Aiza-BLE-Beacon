@@ -97,8 +97,6 @@ abstract class ScreenshotFlow {
 
         tap("Keys"); settle(900); shot("06_tag")
         tap("Start active search"); settle(2_500); shot("07_search")
-        settle(12_000); shot("08_search_wedge")
-        settle(25_000); shot("09_search_hot")
     }
 
     @Test

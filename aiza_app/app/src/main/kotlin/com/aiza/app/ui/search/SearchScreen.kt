@@ -127,7 +127,7 @@ fun SearchScreen(address: String, onClose: () -> Unit, onTrialFinished: (String?
             live?.let { l ->
                 VSpace(10.dp)
                 TrialBar(
-                    l,
+                    l, s.probability,
                     onCheckpoint = { vm.checkpoint() },
                     onFound = { vm.finishTrial(TrialOutcome.FOUND, discard = false, done = onTrialFinished) },
                 )
@@ -195,7 +195,7 @@ internal fun compassLabel(deg: Float): String {
 
 /** Researcher strip during a trial: recording status, timer, checkpoint and found buttons (FR-TRL-02/03). */
 @Composable
-private fun TrialBar(live: TrialLive, onCheckpoint: () -> Unit, onFound: () -> Unit) {
+private fun TrialBar(live: TrialLive, probability: Float, onCheckpoint: () -> Unit, onFound: () -> Unit) {
     val blink = rememberInfiniteTransition(label = "rec").animateFloat(
         1f, 0.25f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "rec-dot",
     )
@@ -214,7 +214,7 @@ private fun TrialBar(live: TrialLive, onCheckpoint: () -> Unit, onFound: () -> U
                 Text(formatTrialTime(live.elapsedMs), style = MaterialTheme.typography.titleMedium)
             }
             Text(
-                "${live.meta.volunteerCode} · RSSI ${live.rssi} · motion ${live.motion} · heading ${live.heading} · steps ${live.steps}" +
+                "${live.meta.volunteerCode} · RSSI ${live.rssi} · motion ${live.motion} · heading ${live.heading} · steps ${live.steps} · P ${"%.2f".format(probability)}" +
                     if (live.meta.wedgeShown) "" else " · no wedge",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
