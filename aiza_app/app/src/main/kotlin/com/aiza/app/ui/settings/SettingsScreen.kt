@@ -2,6 +2,10 @@
 
 package com.aiza.app.ui.settings
 
+import androidx.compose.ui.graphics.Color
+import com.aiza.app.ui.components.topBarBlur
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -71,10 +75,12 @@ fun SettingsScreen(onBack: () -> Unit, onResearcher: () -> Unit, onPermissions: 
     val s = settings ?: Settings()
     val scope = rememberCoroutineScope()
 
+    val haze = rememberHazeState()
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
+                modifier = Modifier.topBarBlur(haze),
                 title = { Text("Settings", style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     FilledTonalIconButton(
@@ -82,11 +88,11 @@ fun SettingsScreen(onBack: () -> Unit, onResearcher: () -> Unit, onPermissions: 
                         colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                     ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
             )
         },
     ) { padding ->
-        LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = padding.calculateTopPadding(), bottom = 32.dp)) {
+        LazyColumn(Modifier.hazeSource(haze), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 32.dp)) {
             item {
                 SectionLabel("Appearance")
                 AizaCard(Modifier.fillMaxWidth()) {

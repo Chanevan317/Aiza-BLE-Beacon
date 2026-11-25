@@ -2,6 +2,10 @@
 
 package com.aiza.app.ui.researcher
 
+import androidx.compose.ui.graphics.Color
+import com.aiza.app.ui.components.topBarBlur
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -44,12 +48,14 @@ internal fun ResearchScaffold(
     bottomBar: @Composable () -> Unit = {},
     content: LazyListScope.() -> Unit,
 ) {
+    val haze = rememberHazeState()
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = bottomBar,
         topBar = {
             TopAppBar(
+                modifier = Modifier.topBarBlur(haze),
                 title = { Text(title, style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     FilledTonalIconButton(
@@ -58,11 +64,12 @@ internal fun ResearchScaffold(
                     ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                 },
                 actions = { actions(); HSpace(8.dp) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
             )
         },
     ) { padding ->
         LazyColumn(
+            modifier = Modifier.hazeSource(haze),
             contentPadding = PaddingValues(
                 start = 20.dp, end = 20.dp,
                 top = padding.calculateTopPadding(),

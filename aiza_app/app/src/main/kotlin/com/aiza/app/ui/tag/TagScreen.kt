@@ -2,6 +2,10 @@
 
 package com.aiza.app.ui.tag
 
+import androidx.compose.material.icons.rounded.PhoneInTalk
+import com.aiza.app.ui.components.topBarBlur
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -30,6 +34,7 @@ import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -104,12 +109,16 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
     var editing by rememberSaveable { mutableStateOf(false) }
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
+    val demo by vm.demoMode.collectAsStateWithLifecycle()
+    val haze = rememberHazeState()
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
+                modifier = Modifier.topBarBlur(haze),
                 title = {},
                 navigationIcon = {
                     FilledTonalIconButton(onBack, Modifier.padding(start = 8.dp), colors = barButtonColors()) {
@@ -125,6 +134,15 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
                             Icon(Icons.Rounded.MoreVert, contentDescription = "More")
                         }
                         DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                            if (demo && state.tag?.buttonRingsPhone == true) DropdownMenuItem(
+                                text = { Text("Press tag button (demo)") },
+                                leadingIcon = { Icon(Icons.Rounded.TouchApp, null) },
+                                onClick = {
+                                    menu = false
+                                    vm.pressDemoButton()
+                                    scope.launch { snackbar.showSnackbar("The phone rings in 5 s. Lock it or leave the app to test.") }
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Unpair tag") },
                                 leadingIcon = { Icon(Icons.Rounded.LinkOff, null) },
@@ -134,7 +152,7 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
                     }
                     HSpace(8.dp)
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
             )
         },
     ) { padding ->
@@ -144,6 +162,7 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
             return@Scaffold
         }
         LazyColumn(
+            modifier = Modifier.hazeSource(haze),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -155,6 +174,7 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
                     AlertTile(tag.leftBehindAlert, vm::setAlert, Modifier.weight(1f).fillMaxHeight())
                 }
             }
+            item { ButtonRingsPhoneCard(tag.buttonRingsPhone, vm::setButtonRingsPhone) }
             item { SectionLabel("Details") }
             item { DetailsGrid(tag, state.nowMs, onCopied = { /* handled inside */ }, snackbar = snackbar) }
             item {
@@ -256,6 +276,28 @@ private fun RingTile(state: RingState, onClick: () -> Unit, modifier: Modifier) 
                     )
                 }
             }
+        }
+    }
+}
+
+/** Per-tag switch for "short press on the tag rings this phone" (FR-RNG-02). */
+@Composable
+private fun ButtonRingsPhoneCard(on: Boolean, onChange: (Boolean) -> Unit) {
+    AizaCard(Modifier.fillMaxWidth(), onClick = { onChange(!on) }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.PhoneInTalk, null, tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HSpace(12.dp)
+            Column(Modifier.weight(1f)) {
+                Text("Find my phone", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (on) "Press the button on the tag to ring this phone" else "Off · tag button presses are ignored",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            HSpace(8.dp)
+            Switch(on, onCheckedChange = onChange)
         }
     }
 }

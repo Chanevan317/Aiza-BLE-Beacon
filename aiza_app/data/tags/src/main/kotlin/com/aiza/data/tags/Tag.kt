@@ -43,6 +43,8 @@ data class Tag(
     val lastSeenLon: Double?,
     val leftBehindAlert: Boolean,
     val pairedEpochMs: Long,
+    /** A short press on the tag's button rings this phone (FR-RNG-02). Off = presses are ignored. */
+    val buttonRingsPhone: Boolean = true,
 ) {
     fun isNearby(nowMs: Long): Boolean = lastSeenEpochMs != null && nowMs - lastSeenEpochMs < NEARBY_WINDOW_MS
     val batteryLow: Boolean get() = batteryPercent != null && batteryPercent < LOW_BATTERY_PERCENT

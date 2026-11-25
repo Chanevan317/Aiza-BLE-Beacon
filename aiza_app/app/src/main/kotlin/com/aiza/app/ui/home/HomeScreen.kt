@@ -2,6 +2,7 @@
 
 package com.aiza.app.ui.home
 
+import com.aiza.app.ui.components.fadeTopEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -169,7 +170,7 @@ fun HomeScreen(onOpenTag: (String) -> Unit, onSettings: () -> Unit, onPermission
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().fadeTopEdge(),
                     ) {
                         itemsIndexed(state.tags, key = { _, t -> t.address }) { i, tag ->
                             val m = Modifier.animateItem().appear(i)

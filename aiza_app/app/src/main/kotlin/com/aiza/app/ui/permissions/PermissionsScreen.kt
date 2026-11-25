@@ -2,6 +2,10 @@
 
 package com.aiza.app.ui.permissions
 
+import androidx.compose.ui.graphics.Color
+import com.aiza.app.ui.components.topBarBlur
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -26,10 +30,12 @@ import com.aiza.app.ui.components.VSpace
 @Composable
 fun PermissionsScreen(onBack: () -> Unit) {
     val controller = rememberPermissionController()
+    val haze = rememberHazeState()
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
+                modifier = Modifier.topBarBlur(haze),
                 title = { Text("Permissions", style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     FilledTonalIconButton(
@@ -37,11 +43,14 @@ fun PermissionsScreen(onBack: () -> Unit) {
                         colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                     ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
             )
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+        Column(
+            Modifier.fillMaxSize().hazeSource(haze).verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding()),
+        ) {
             Text(
                 if (controller.state.allReady) "Everything is set up. AIZA can find and connect to your tags."
                 else "AIZA needs these to find and connect to your tags. You can change them any time in Android settings.",

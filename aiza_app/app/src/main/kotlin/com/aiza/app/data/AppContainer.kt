@@ -2,6 +2,8 @@ package com.aiza.app.data
 
 import android.content.Context
 import com.aiza.data.tags.DataStoreTagRepository
+import com.aiza.app.ring.AndroidRingOutput
+import com.aiza.app.ring.PhoneRinger
 import com.aiza.data.trial.TrialStore
 import com.aiza.platform.sensors.MotionSensors
 import com.aiza.data.tags.DemoTagRepository
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /** Manual dependency container. Demo mode swaps in fake tags so the UI works without hardware. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -54,4 +57,19 @@ class AppContainer(context: Context) {
         appScope, trialStore, motionSensors,
         appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?",
     )
+
+    /** Demo stand-in for tag button presses. TODO: swap for the real Button Event source with the BLE layer. */
+    val demoButton = DemoTagButton(appScope)
+    val buttonEvents: TagButtonEvents = demoButton
+    val phoneRinger = PhoneRinger(appScope, AndroidRingOutput(context))
+
+    init {
+        // A short press on a paired tag rings the phone, unless switched off for that tag (FR-RNG-02).
+        appScope.launch {
+            buttonEvents.presses.collect { address ->
+                val tag = tags.tag(address).first()?.takeIf { it.buttonRingsPhone } ?: return@collect
+                phoneRinger.onButtonPress(address, tag.name, tag.icon)
+            }
+        }
+    }
 }

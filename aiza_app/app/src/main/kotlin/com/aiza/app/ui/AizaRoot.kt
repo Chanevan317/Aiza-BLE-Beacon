@@ -38,6 +38,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aiza.app.ui.onboarding.OnboardingScreen
 import com.aiza.app.ui.permissions.PermissionsScreen
+import com.aiza.app.ui.ring.PhoneRingScreen
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.runtime.remember
+import com.aiza.app.ring.PhoneRing
 
 @Serializable object HomeRoute
 @Serializable data class TagRoute(val address: String)
@@ -67,6 +71,13 @@ fun AizaRoot(container: AppContainer) {
                 1 -> OnboardingScreen(onFinished = { scope.launch { container.settingsRepository.setOnboardingDone(true) } })
                 else -> AizaNavHost()
             }
+        }
+        // The tag is ringing the phone: cover everything (FR-RNG-02).
+        val ring by container.phoneRinger.ringing.collectAsStateWithLifecycle()
+        var shown by remember { mutableStateOf<PhoneRing?>(null) }
+        if (ring != null) shown = ring
+        AnimatedVisibility(ring != null, enter = fadeIn(tween(250)) + scaleIn(tween(250), initialScale = 1.05f), exit = fadeOut(tween(300))) {
+            shown?.let { PhoneRingScreen(it, onStop = container.phoneRinger::stop) }
         }
     }
 }

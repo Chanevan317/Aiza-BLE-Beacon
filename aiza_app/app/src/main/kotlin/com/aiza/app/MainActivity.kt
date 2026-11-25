@@ -10,6 +10,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.aiza.app.ui.AizaRoot
 import com.aiza.app.ui.theme.AizaTheme
 import com.aiza.app.ui.theme.isDark
@@ -21,6 +23,13 @@ class MainActivity : ComponentActivity() {
         // Hold the system splash only until settings (theme) are loaded, so the first frame has the right theme.
         installSplashScreen().setKeepOnScreenCondition { container.settings.value == null }
         super.onCreate(savedInstanceState)
+        // While the tag rings the phone, show the ring screen over the lock screen and wake the display (FR-RNG-02).
+        lifecycleScope.launch {
+            container.phoneRinger.ringing.collect { ring ->
+                setShowWhenLocked(ring != null)
+                setTurnScreenOn(ring != null)
+            }
+        }
         setContent {
             val settings by container.settings.collectAsStateWithLifecycle()
             val dark = (settings?.themeMode ?: ThemeMode.SYSTEM).isDark()

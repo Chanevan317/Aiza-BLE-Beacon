@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -33,6 +34,13 @@ class TagViewModel(private val container: AppContainer, private val address: Str
         TagUiState(loading = false, tag = tag, nowMs = now, ring = r)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TagUiState())
 
+    /** Demo mode only: there is no real tag whose button could be pressed. */
+    val demoMode: StateFlow<Boolean> = container.settings.map { it?.demoMode == true }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Pretend the tag's button was pressed in [DEMO_PRESS_DELAY_MS], so the tester can lock the phone first (FR-RNG-02). */
+    fun pressDemoButton() = container.demoButton.pressLater(address, DEMO_PRESS_DELAY_MS)
+
     /** Second tap stops; stops by itself after 30 s (FR-RNG-01). */
     fun toggleRing() {
         if (ring.value != RingState.IDLE) {
@@ -52,6 +60,11 @@ class TagViewModel(private val container: AppContainer, private val address: Str
         }
     }
 
+    fun setButtonRingsPhone(on: Boolean) = viewModelScope.launch {
+        container.tags.update(address) { it.copy(buttonRingsPhone = on) }
+        if (!on && container.phoneRinger.ringing.value?.address == address) container.phoneRinger.stop()
+    }
+
     fun setAlert(on: Boolean) = viewModelScope.launch { container.tags.update(address) { it.copy(leftBehindAlert = on) } }
 
     fun edit(name: String, icon: TagIcon) = viewModelScope.launch {
@@ -61,5 +74,9 @@ class TagViewModel(private val container: AppContainer, private val address: Str
     fun unpair(done: () -> Unit) = viewModelScope.launch {
         container.tags.remove(address)
         done()
+    }
+
+    companion object {
+        const val DEMO_PRESS_DELAY_MS = 5_000L
     }
 }
