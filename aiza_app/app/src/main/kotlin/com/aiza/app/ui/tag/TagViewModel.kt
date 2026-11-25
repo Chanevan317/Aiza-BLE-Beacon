@@ -3,6 +3,7 @@ package com.aiza.app.ui.tag
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aiza.app.data.AppContainer
+import com.aiza.app.separation.SeparationStatus
 import com.aiza.data.tags.Tag
 import com.aiza.data.tags.TagIcon
 import kotlinx.coroutines.Job
@@ -23,6 +24,8 @@ data class TagUiState(
     val tag: Tag? = null,
     val nowMs: Long = System.currentTimeMillis(),
     val ring: RingState = RingState.IDLE,
+    /** Left-behind watching state; null when not watched (FR-SEP). */
+    val separation: SeparationStatus? = null,
 )
 
 class TagViewModel(private val container: AppContainer, private val address: String) : ViewModel() {
@@ -30,8 +33,10 @@ class TagViewModel(private val container: AppContainer, private val address: Str
     private var ringTimeout: Job? = null
     private val clock = flow { while (true) { emit(System.currentTimeMillis()); delay(10_000) } }
 
-    val state: StateFlow<TagUiState> = combine(container.tags.tag(address), clock, ring) { tag, now, r ->
-        TagUiState(loading = false, tag = tag, nowMs = now, ring = r)
+    val state: StateFlow<TagUiState> = combine(
+        container.tags.tag(address), clock, ring, container.separation.status.map { it[address] },
+    ) { tag, now, r, sep ->
+        TagUiState(loading = false, tag = tag, nowMs = now, ring = r, separation = sep)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TagUiState())
 
     /** Demo mode only: there is no real tag whose button could be pressed. */
@@ -40,6 +45,13 @@ class TagViewModel(private val container: AppContainer, private val address: Str
 
     /** Pretend the tag's button was pressed in [DEMO_PRESS_DELAY_MS], so the tester can lock the phone first (FR-RNG-02). */
     fun pressDemoButton() = container.demoButton.pressLater(address, DEMO_PRESS_DELAY_MS)
+
+    /** Demo mode: is this tag "left behind" (signal fading / gone)? */
+    val demoAway: StateFlow<Boolean> = container.demoLink.away.map { address in it }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun demoLeave() = container.demoLink.leave(address)
+    fun demoComeBack() = viewModelScope.launch { container.demoLink.comeBack(address) }
 
     /** Second tap stops; stops by itself after 30 s (FR-RNG-01). */
     fun toggleRing() {

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,7 +70,7 @@ fun AizaRoot(container: AppContainer) {
             when (s) {
                 0 -> AizaSplash(onFinished = { splashDone = true })
                 1 -> OnboardingScreen(onFinished = { scope.launch { container.settingsRepository.setOnboardingDone(true) } })
-                else -> AizaNavHost()
+                else -> AizaNavHost(container)
             }
         }
         // The tag is ringing the phone: cover everything (FR-RNG-02).
@@ -83,8 +84,13 @@ fun AizaRoot(container: AppContainer) {
 }
 
 @Composable
-private fun AizaNavHost() {
+private fun AizaNavHost(container: AppContainer) {
     val nav = rememberNavController()
+    // Opened from a left-behind notification.
+    val openTag by container.openTagRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(openTag) {
+        openTag?.let { nav.navigate(TagRoute(it)) { launchSingleTop = true }; container.openTagRequest.value = null }
+    }
     val dur = 380
     NavHost(
         navController = nav,

@@ -2,6 +2,9 @@
 
 package com.aiza.app.ui.tag
 
+import com.aiza.app.separation.SeparationStatus
+import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.PhoneInTalk
 import com.aiza.app.ui.components.topBarBlur
 import dev.chrisbanes.haze.rememberHazeState
@@ -110,6 +113,7 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val demo by vm.demoMode.collectAsStateWithLifecycle()
+    val demoAway by vm.demoAway.collectAsStateWithLifecycle()
     val haze = rememberHazeState()
     val scope = rememberCoroutineScope()
 
@@ -134,6 +138,17 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
                             Icon(Icons.Rounded.MoreVert, contentDescription = "More")
                         }
                         DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                            if (demo && state.tag?.leftBehindAlert == true) DropdownMenuItem(
+                                text = { Text(if (demoAway) "Bring tag back (demo)" else "Leave tag behind (demo)") },
+                                leadingIcon = { Icon(if (demoAway) Icons.AutoMirrored.Rounded.Undo else Icons.AutoMirrored.Rounded.DirectionsWalk, null) },
+                                onClick = {
+                                    menu = false
+                                    if (demoAway) vm.demoComeBack() else {
+                                        vm.demoLeave()
+                                        scope.launch { snackbar.showSnackbar("The signal fades as if you walked away. Lock the phone to test.") }
+                                    }
+                                },
+                            )
                             if (demo && state.tag?.buttonRingsPhone == true) DropdownMenuItem(
                                 text = { Text("Press tag button (demo)") },
                                 leadingIcon = { Icon(Icons.Rounded.TouchApp, null) },
@@ -171,7 +186,7 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
             item {
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     RingTile(state.ring, vm::toggleRing, Modifier.weight(1f).fillMaxHeight())
-                    AlertTile(tag.leftBehindAlert, vm::setAlert, Modifier.weight(1f).fillMaxHeight())
+                    AlertTile(tag.leftBehindAlert, state.separation, vm::setAlert, Modifier.weight(1f).fillMaxHeight())
                 }
             }
             item { ButtonRingsPhoneCard(tag.buttonRingsPhone, vm::setButtonRingsPhone) }
@@ -303,18 +318,28 @@ private fun ButtonRingsPhoneCard(on: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 @Composable
-private fun AlertTile(on: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier) {
+private fun AlertTile(on: Boolean, status: SeparationStatus?, onChange: (Boolean) -> Unit, modifier: Modifier) {
+    val left = on && status == SeparationStatus.LEFT_BEHIND
     AizaCard(modifier, onClick = { onChange(!on) }) {
         Row(verticalAlignment = Alignment.Top) {
             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.NotificationsActive, null, tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Rounded.NotificationsActive, null, tint = if (left) MaterialTheme.colorScheme.error else if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Box(Modifier.weight(1f))
             Switch(on, onCheckedChange = onChange)
         }
         VSpace(10.dp)
         Text("Left-behind alert", style = MaterialTheme.typography.titleSmall)
-        Text(if (on) "On · warns if left behind" else "Off", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            when {
+                !on -> "Off"
+                left -> "Left behind!"
+                status == SeparationStatus.WATCHING -> "On · watching"
+                else -> "On · connecting…"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (left) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

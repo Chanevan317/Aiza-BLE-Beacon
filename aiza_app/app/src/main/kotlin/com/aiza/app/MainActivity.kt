@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
         // Hold the system splash only until settings (theme) are loaded, so the first frame has the right theme.
         installSplashScreen().setKeepOnScreenCondition { container.settings.value == null }
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
         // While the tag rings the phone, show the ring screen over the lock screen and wake the display (FR-RNG-02).
         lifecycleScope.launch {
             container.phoneRinger.ringing.collect { ring ->
@@ -42,5 +43,21 @@ class MainActivity : ComponentActivity() {
                 AizaRoot(container)
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** A left-behind notification opens its tag. */
+    private fun handleIntent(intent: android.content.Intent?) {
+        val address = intent?.getStringExtra(EXTRA_OPEN_TAG) ?: return
+        intent.removeExtra(EXTRA_OPEN_TAG)
+        (application as AizaApplication).container.openTagRequest.value = address
+    }
+
+    companion object {
+        const val EXTRA_OPEN_TAG = "open_tag"
     }
 }

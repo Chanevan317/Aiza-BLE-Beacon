@@ -4,6 +4,13 @@ import android.content.Context
 import com.aiza.data.tags.DataStoreTagRepository
 import com.aiza.app.ring.AndroidRingOutput
 import com.aiza.app.ring.PhoneRinger
+import com.aiza.app.separation.AndroidSeparationAlerts
+import com.aiza.app.separation.DemoTagLink
+import com.aiza.app.separation.SeparationWatcher
+import com.aiza.app.service.SeparationAlertService
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.aiza.data.trial.TrialStore
 import com.aiza.platform.sensors.MotionSensors
 import com.aiza.data.tags.DemoTagRepository
@@ -32,7 +39,7 @@ class AppContainer(context: Context) {
     val settings: StateFlow<Settings?> = settingsRepository.settings.stateIn(appScope, SharingStarted.Eagerly, null)
 
     private val realTags = DataStoreTagRepository(context)
-    private val demoTags = DemoTagRepository(appScope)
+    private val demoTags = DemoTagRepository(appScope, isDrivenElsewhere = { it in demoLink.away.value })
 
     private suspend fun active(): TagRepository = if (settingsRepository.settings.first().demoMode) demoTags else realTags
 
@@ -63,12 +70,26 @@ class AppContainer(context: Context) {
     val buttonEvents: TagButtonEvents = demoButton
     val phoneRinger = PhoneRinger(appScope, AndroidRingOutput(context))
 
+    /** Demo stand-in for the kept-open tag link; "Leave behind" fades the signal. TODO: real link with #6. */
+    val demoLink = DemoTagLink(tags)
+    val separationAlerts = AndroidSeparationAlerts(context)
+    val separation = SeparationWatcher(appScope, tags, settings, demoLink, separationAlerts)
+
+    /** Set when a notification asks to open a tag; the nav host consumes it. */
+    val openTagRequest = MutableStateFlow<String?>(null)
+
     init {
         // A short press on a paired tag rings the phone, unless switched off for that tag (FR-RNG-02).
         appScope.launch {
             buttonEvents.presses.collect { address ->
                 val tag = tags.tag(address).first()?.takeIf { it.buttonRingsPhone } ?: return@collect
                 phoneRinger.onButtonPress(address, tag.name, tag.icon)
+            }
+        }
+        // Keep the process alive with a foreground service while any tag is watched (FR-SEP-01).
+        appScope.launch {
+            separation.watching.map { it.isNotEmpty() }.distinctUntilChanged().collect { any ->
+                if (any) SeparationAlertService.start(context) else SeparationAlertService.stop(context)
             }
         }
     }

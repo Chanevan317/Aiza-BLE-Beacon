@@ -14,7 +14,12 @@ import kotlin.random.Random
  * In-memory tags for building and demoing the UI without a phone or tag.
  * Nearby demo tags get a fresh signal reading every few seconds so the screens feel live.
  */
-class DemoTagRepository(scope: CoroutineScope, private val clock: () -> Long = System::currentTimeMillis) : TagRepository {
+class DemoTagRepository(
+    scope: CoroutineScope,
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** Tags whose signal another demo part drives (the left-behind demo); the ticker leaves them alone. */
+    private val isDrivenElsewhere: (String) -> Boolean = { false },
+) : TagRepository {
     private val state = MutableStateFlow(seed(clock()))
     override val tags: StateFlow<List<Tag>> = state
 
@@ -25,7 +30,7 @@ class DemoTagRepository(scope: CoroutineScope, private val clock: () -> Long = S
                 val now = clock()
                 state.update { list ->
                     list.map { t ->
-                        if (t.address in LIVE) t.copy(
+                        if (t.address in LIVE && !isDrivenElsewhere(t.address)) t.copy(
                             lastSeenEpochMs = now,
                             rssiDbm = ((t.rssiDbm ?: -70) + Random.nextInt(-3, 4)).coerceIn(-90, -45),
                         ) else t
