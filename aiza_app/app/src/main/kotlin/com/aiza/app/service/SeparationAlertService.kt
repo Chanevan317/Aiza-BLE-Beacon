@@ -27,13 +27,15 @@ class SeparationAlertService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         val container = (application as AizaApplication).container
         val count = container.separation.watching.value.size
-        val started = runCatching {
-            ServiceCompat.startForeground(
-                this, AndroidSeparationAlerts.SERVICE_NOTIFICATION_ID,
-                container.separationAlerts.serviceNotification(count.coerceAtLeast(1)),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-            )
+        val notification = container.separationAlerts.serviceNotification(count.coerceAtLeast(1))
+        fun start(type: Int) = runCatching {
+            ServiceCompat.startForeground(this, AndroidSeparationAlerts.SERVICE_NOTIFICATION_ID, notification, type)
         }
+        // With location allowed, also run as a location service so "last seen" can be saved with the screen off
+        // (FR-STA-03). Android refuses that type in some cases (e.g. a restart from the background); then fall back.
+        val connected = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        val started = (if (container.phoneLocator.allowed()) start(connected or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION) else null)
+            ?.takeIf { it.isSuccess } ?: start(connected)
         if (started.isFailure) {
             // Missing Bluetooth permission or started from the background: watching still runs while the app is open.
             Log.w(TAG, "Could not start in the foreground", started.exceptionOrNull())

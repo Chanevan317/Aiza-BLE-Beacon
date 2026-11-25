@@ -51,6 +51,8 @@ data class Tag(
     val pairedEpochMs: Long,
     /** A short press on the tag's button rings this phone (FR-RNG-02). Off = presses are ignored. */
     val buttonRingsPhone: Boolean = true,
+    /** Accuracy of [lastSeenLat]/[lastSeenLon] in metres, if known (FR-STA-03). */
+    val lastSeenAccuracyM: Float? = null,
 ) {
     fun isNearby(nowMs: Long): Boolean = lastSeenEpochMs != null && nowMs - lastSeenEpochMs < NEARBY_WINDOW_MS
 

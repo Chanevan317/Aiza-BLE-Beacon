@@ -2,6 +2,12 @@
 
 package com.aiza.app.ui.tag
 
+import kotlin.math.roundToInt
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.rounded.Map
+import android.net.Uri
+import android.content.Intent
 import com.aiza.app.ui.home.presenceColor
 import com.aiza.app.separation.SeparationStatus
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
@@ -191,6 +197,7 @@ fun TagScreen(address: String, onBack: () -> Unit, onSearch: () -> Unit) {
                 }
             }
             item { ButtonRingsPhoneCard(tag.buttonRingsPhone, vm::setButtonRingsPhone) }
+            item { LastSeenCard(tag, state.nowMs) }
             item { SectionLabel("Details") }
             item { DetailsGrid(tag, state.nowMs, onCopied = { /* handled inside */ }, snackbar = snackbar) }
             item {
@@ -297,6 +304,59 @@ private fun RingTile(state: RingState, onClick: () -> Unit, modifier: Modifier) 
     }
 }
 
+/** Where the phone was when it last heard the tag, with a button into Google Maps (FR-STA-03). */
+@Composable
+private fun LastSeenCard(tag: Tag, nowMs: Long) {
+    val context = LocalContext.current
+    val lat = tag.lastSeenLat
+    val lon = tag.lastSeenLon
+    AizaCard(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.Top) {
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Place, null, tint = if (lat != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HSpace(12.dp)
+            Column(Modifier.weight(1f)) {
+                Text("Last seen", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    tag.lastSeenEpochMs?.let { relativeTime(it, nowMs) } ?: "Never",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                VSpace(6.dp)
+                if (lat != null && lon != null) {
+                    Text(tag.lastSeenPlace ?: "%.5f, %.5f".format(lat, lon), style = MaterialTheme.typography.bodyMedium)
+                    tag.lastSeenAccuracyM?.let {
+                        Text("Accurate to about ${it.roundToInt()} m", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    Text(
+                        "No location saved yet. It is saved while the tag is connected and the phone's location is on.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        VSpace(12.dp)
+        FilledTonalButton(
+            onClick = { if (lat != null && lon != null) openInGoogleMaps(context, lat, lon) },
+            enabled = lat != null && lon != null,
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Icon(Icons.Rounded.Map, null, Modifier.size(18.dp))
+            HSpace(8.dp)
+            Text("Open in Google Maps")
+        }
+    }
+}
+
+/** Opens a pin in the Google Maps app; falls back to the browser if the app is missing. */
+private fun openInGoogleMaps(context: android.content.Context, lat: Double, lon: Double) {
+    val uri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lon")
+    val app = Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.apps.maps")
+    runCatching { context.startActivity(app) }.recoverCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+}
+
 /** Per-tag switch for "short press on the tag rings this phone" (FR-RNG-02). */
 @Composable
 private fun ButtonRingsPhoneCard(on: Boolean, onChange: (Boolean) -> Unit) {
@@ -388,7 +448,6 @@ private fun DetailsGrid(tag: Tag, nowMs: Long, onCopied: () -> Unit, snackbar: S
                     }
                 }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy tag ID", modifier = Modifier.size(20.dp)) }
             })
-            DetailRow(Icons.Rounded.Place, "Last seen", tag.lastSeenEpochMs?.let { relativeTime(it, nowMs) + (tag.lastSeenPlace?.let { p -> " · $p" } ?: "") } ?: "Never")
             DetailRow(Icons.Rounded.Bluetooth, "Bluetooth address", tag.address, mono = true)
             DetailRow(Icons.Rounded.Memory, "Firmware", tag.firmwareVersion ?: "Unknown")
             DetailRow(Icons.Rounded.Event, "Paired", formatDate(tag.pairedEpochMs))

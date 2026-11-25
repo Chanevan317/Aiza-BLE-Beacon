@@ -6,6 +6,8 @@ import com.aiza.app.ble.RealProximitySource
 import com.aiza.app.ble.RealTagController
 import com.aiza.app.ble.RealTagLink
 import com.aiza.app.ble.TagHub
+import com.aiza.app.location.LastSeenRecorder
+import com.aiza.app.location.PhoneLocator
 import com.aiza.app.ring.AndroidRingOutput
 import com.aiza.app.ui.pairing.CompanionPairing
 import com.aiza.platform.ble.TagBonding
@@ -104,6 +106,10 @@ class AppContainer(val context: Context) {
     }
     val separationAlerts = AndroidSeparationAlerts(context)
     val separation = SeparationWatcher(appScope, tags, settings, link, separationAlerts)
+
+    /** Where the phone was when it last heard each tag (FR-STA-03). */
+    val phoneLocator = PhoneLocator(context)
+    private val lastSeen = LastSeenRecorder(appScope, tags, phoneLocator)
 
     /** Set when a notification asks to open a tag; the nav host consumes it. */
     val openTagRequest = MutableStateFlow<String?>(null)
