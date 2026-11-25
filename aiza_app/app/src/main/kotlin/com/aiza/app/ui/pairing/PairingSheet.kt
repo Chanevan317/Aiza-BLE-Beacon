@@ -2,6 +2,8 @@
 
 package com.aiza.app.ui.pairing
 
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material3.CircularProgressIndicator
 import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -110,6 +112,8 @@ fun PairingSheet(onDismiss: () -> Unit, onPaired: (String) -> Unit) {
                 when (s) {
                     PairingStep.Intro -> IntroStep(onNext = vm::startSearch, onCancel = onDismiss)
                     is PairingStep.Searching -> SearchingStep(s, onPick = vm::select, onBack = vm::back)
+                    is PairingStep.Connecting -> ConnectingStep(onBack = vm::back)
+                    is PairingStep.Failed -> FailedStep(s.message, onRetry = vm::back)
                     is PairingStep.Naming -> NamingStep(s.tag, onSave = { name, icon -> vm.save(s.tag, name, icon) }, onBack = vm::back)
                     is PairingStep.Done -> DoneStep(s, onDone = { onPaired(s.address) })
                 }
@@ -213,6 +217,29 @@ private fun SearchingStep(s: PairingStep.Searching, onPick: (DiscoveredTag) -> U
         }
         VSpace(8.dp)
     }
+}
+
+@Composable
+private fun ConnectingStep(onBack: () -> Unit) {
+    BackRow(onBack)
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(150.dp)) {
+        PulseRings(MaterialTheme.colorScheme.primary, Modifier.size(150.dp), periodMs = 1200, minRadiusFraction = 0.35f)
+        CircularProgressIndicator(Modifier.size(56.dp))
+    }
+    VSpace(8.dp)
+    StepTitle("Pairing…", "Securing the connection and reading the tag's ID. Keep it close to the phone.")
+    VSpace(24.dp)
+}
+
+@Composable
+private fun FailedStep(message: String, onRetry: () -> Unit) {
+    VSpace(24.dp)
+    Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(56.dp))
+    VSpace(14.dp)
+    StepTitle("Couldn't add the tag", message)
+    VSpace(24.dp)
+    Button(onClick = onRetry, modifier = Modifier.fillMaxWidth().height(56.dp), shape = MaterialTheme.shapes.large) { Text("Try again") }
+    VSpace(8.dp)
 }
 
 @Composable

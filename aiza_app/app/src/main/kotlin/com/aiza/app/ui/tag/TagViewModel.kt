@@ -84,7 +84,7 @@ class TagViewModel(private val container: AppContainer, private val address: Str
     }
 
     fun unpair(done: () -> Unit) = viewModelScope.launch {
-        container.tags.remove(address)
+        container.unpair(address)
         done()
     }
 

@@ -2,7 +2,15 @@ package com.aiza.app.data
 
 import android.content.Context
 import com.aiza.data.tags.DataStoreTagRepository
+import com.aiza.app.ble.RealProximitySource
+import com.aiza.app.ble.RealTagController
+import com.aiza.app.ble.RealTagLink
+import com.aiza.app.ble.TagHub
 import com.aiza.app.ring.AndroidRingOutput
+import com.aiza.app.ui.pairing.CompanionPairing
+import com.aiza.platform.ble.TagBonding
+import com.aiza.app.separation.TagLink
+import kotlinx.coroutines.flow.merge
 import com.aiza.app.ring.PhoneRinger
 import com.aiza.app.separation.AndroidSeparationAlerts
 import com.aiza.app.separation.DemoTagLink
@@ -32,7 +40,7 @@ import kotlinx.coroutines.launch
 
 /** Manual dependency container. Demo mode swaps in fake tags so the UI works without hardware. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class AppContainer(context: Context) {
+class AppContainer(val context: Context) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val settingsRepository = SettingsRepository(context)
@@ -54,26 +62,48 @@ class AppContainer(context: Context) {
         override suspend fun remove(address: String) = active().remove(address)
     }
 
-    val tagController: TagController = DemoTagController()
+    /** True in demo mode (the default until settings load). */
+    private val demoMode: StateFlow<Boolean> =
+        settingsRepository.settings.map { it.demoMode }.stateIn(appScope, SharingStarted.Eagerly, true)
+    private val demoModeFlow: Flow<Boolean> = settingsRepository.settings.map { it.demoMode }.distinctUntilChanged()
+
+    /** Real Bluetooth: one connection per paired tag while demo mode is off (SRS §4.3). */
+    val tagHub = TagHub(context, appScope, realTags, demoModeFlow.map { !it })
+
+    private val demoController = DemoTagController()
+    private val realController = RealTagController(tagHub)
+    val tagController: TagController = object : TagController {
+        override suspend fun ring(address: String, on: Boolean) = (if (demoMode.value) demoController else realController).ring(address, on)
+        override suspend fun setFindMode(address: String, on: Boolean) =
+            (if (demoMode.value) demoController else realController).setFindMode(address, on)
+    }
     val discovery: TagDiscovery = DemoTagDiscovery()
 
     val motionSensors = MotionSensors(context)
-    val proximity: ProximitySource = DemoProximitySource(motionSensors)
+    private val demoProximity = DemoProximitySource(motionSensors)
+    private val realProximity = RealProximitySource(context, tagHub)
+    val proximity: ProximitySource = object : ProximitySource {
+        override fun rssi(address: String) = demoModeFlow.flatMapLatest { if (it) demoProximity.rssi(address) else realProximity.rssi(address) }
+    }
     val trialStore = TrialStore(context)
     val trialRecorder = TrialRecorder(
         appScope, trialStore, motionSensors,
         appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?",
     )
 
-    /** Demo stand-in for tag button presses. TODO: swap for the real Button Event source with the BLE layer. */
+    /** Demo stand-in for tag button presses; real presses come from the tag hub. */
     val demoButton = DemoTagButton(appScope)
-    val buttonEvents: TagButtonEvents = demoButton
+    private val buttonPresses: Flow<String> = merge(demoButton.presses, tagHub.presses)
     val phoneRinger = PhoneRinger(appScope, AndroidRingOutput(context))
 
-    /** Demo stand-in for the kept-open tag link; "Leave behind" fades the signal. TODO: real link with #6. */
+    /** Demo stand-in for the kept-open tag link; "Leave behind" fades the signal. */
     val demoLink = DemoTagLink(tags)
+    private val realLink = RealTagLink(tagHub)
+    private val link: TagLink = object : TagLink {
+        override fun watch(address: String) = demoModeFlow.flatMapLatest { if (it) demoLink.watch(address) else realLink.watch(address) }
+    }
     val separationAlerts = AndroidSeparationAlerts(context)
-    val separation = SeparationWatcher(appScope, tags, settings, demoLink, separationAlerts)
+    val separation = SeparationWatcher(appScope, tags, settings, link, separationAlerts)
 
     /** Set when a notification asks to open a tag; the nav host consumes it. */
     val openTagRequest = MutableStateFlow<String?>(null)
@@ -81,7 +111,7 @@ class AppContainer(context: Context) {
     init {
         // A short press on a paired tag rings the phone, unless switched off for that tag (FR-RNG-02).
         appScope.launch {
-            buttonEvents.presses.collect { address ->
+            buttonPresses.collect { address ->
                 val tag = tags.tag(address).first()?.takeIf { it.buttonRingsPhone } ?: return@collect
                 phoneRinger.onButtonPress(address, tag.name, tag.icon)
             }
@@ -91,6 +121,16 @@ class AppContainer(context: Context) {
             separation.watching.map { it.isNotEmpty() }.distinctUntilChanged().collect { any ->
                 if (any) SeparationAlertService.start(context) else SeparationAlertService.stop(context)
             }
+        }
+    }
+
+    /** Unpair (FR-SET-03): forget the tag, its data, the system bond and the companion association. */
+    suspend fun unpair(address: String) {
+        val real = !demoMode.value
+        tags.remove(address)
+        if (real) {
+            TagBonding.removeBond(context, address)
+            CompanionPairing.forget(context, address)
         }
     }
 }
