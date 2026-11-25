@@ -20,6 +20,12 @@ enum class BatteryLevel(val label: String) {
     }
 }
 
+/** Status shown for a tag (FR-STA-01): connected now, or not (then the app shows when it was last seen). */
+enum class Presence(val label: String) {
+    CONNECTED("Connected"), DISCONNECTED("Disconnected");
+    val heard: Boolean get() = this == CONNECTED
+}
+
 /** What the tag is attached to; the UI maps each value to an icon (FR-SET-02). */
 @Serializable
 enum class TagIcon { KEYS, WALLET, BAG, BACKPACK, LUGGAGE, CAR, PET, BIKE, HEADPHONES, LAPTOP, REMOTE, TAG }
@@ -47,6 +53,10 @@ data class Tag(
     val buttonRingsPhone: Boolean = true,
 ) {
     fun isNearby(nowMs: Long): Boolean = lastSeenEpochMs != null && nowMs - lastSeenEpochMs < NEARBY_WINDOW_MS
+
+    /** Connected = heard within the last minute with a live signal; the link sets the signal to null when it drops. */
+    fun presence(nowMs: Long): Presence =
+        if (isNearby(nowMs) && rssiDbm != null) Presence.CONNECTED else Presence.DISCONNECTED
     val batteryLow: Boolean get() = batteryPercent != null && batteryPercent < LOW_BATTERY_PERCENT
     val batteryLevel: BatteryLevel? get() = BatteryLevel.from(batteryPercent)
 

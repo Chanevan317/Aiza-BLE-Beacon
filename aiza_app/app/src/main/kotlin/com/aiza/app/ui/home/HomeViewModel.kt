@@ -21,7 +21,7 @@ data class HomeState(
     val nowMs: Long = System.currentTimeMillis(),
     val settings: Settings = Settings(),
 ) {
-    val nearbyCount: Int get() = tags.count { it.isNearby(nowMs) }
+    val nearbyCount: Int get() = tags.count { it.presence(nowMs).heard }
 }
 
 class HomeViewModel(private val container: AppContainer) : ViewModel() {

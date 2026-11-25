@@ -82,10 +82,10 @@ abstract class ScreenshotFlow {
         waitFor { has("Your tags") }
         settle(800); shot("02_home")
         rule.onNodeWithContentDescription("Card view").performClick()
-        waitFor { rule.onAllNodes(hasText("Nearby")).fetchSemanticsNodes().isNotEmpty() }
+        waitFor { rule.onAllNodes(hasText("Connected")).fetchSemanticsNodes().isNotEmpty() }
         settle(800); shot("02b_home_cards")
         rule.onNodeWithContentDescription("List view").performClick()
-        waitFor { rule.onAllNodes(hasText("Nearby")).fetchSemanticsNodes().isEmpty() }
+        waitFor { rule.onAllNodes(hasText("Connected")).fetchSemanticsNodes().isEmpty() }
         settle(800)
 
         tap("Add tag"); settle(900); shot("03_pairing_intro")

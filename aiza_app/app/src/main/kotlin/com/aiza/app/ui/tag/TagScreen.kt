@@ -2,6 +2,7 @@
 
 package com.aiza.app.ui.tag
 
+import com.aiza.app.ui.home.presenceColor
 import com.aiza.app.separation.SeparationStatus
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
 import androidx.compose.material.icons.automirrored.rounded.Undo
@@ -230,7 +231,8 @@ private fun barButtonColors() = IconButtonDefaults.filledTonalIconButtonColors(
 
 @Composable
 private fun Hero(tag: Tag, nowMs: Long) {
-    val nearby = tag.isNearby(nowMs)
+    val presence = tag.presence(nowMs)
+    val nearby = presence.heard
     Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 20.dp)) {
             TagAvatar(tag.icon, size = 96.dp, dimmed = !nearby)
@@ -239,7 +241,7 @@ private fun Hero(tag: Tag, nowMs: Long) {
         VSpace(8.dp)
         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(if (nearby) AizaTheme.extra.success else MaterialTheme.colorScheme.outline)
+                StatusDot(presenceColor(presence))
                 HSpace(8.dp)
                 Text(statusLine(tag, nowMs), style = MaterialTheme.typography.labelMedium)
             }
@@ -347,7 +349,7 @@ private fun AlertTile(on: Boolean, status: SeparationStatus?, onChange: (Boolean
 private fun DetailsGrid(tag: Tag, nowMs: Long, onCopied: () -> Unit, snackbar: SnackbarHostState) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    val nearby = tag.isNearby(nowMs)
+    val nearby = tag.presence(nowMs).heard
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             InfoTile("Battery", Modifier.weight(1f).fillMaxHeight(), leading = {

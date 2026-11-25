@@ -89,10 +89,17 @@ class TagHub(
             }
         }
         // Signal and "last seen" for the home and tag screens (FR-STA-01).
+        // Median of the last 3 readings, so one noisy reading doesn't flip "Close by" / "Far away".
         launch {
+            val recent = ArrayDeque<Int>()
             while (true) {
-                c.readRssi()?.let { r -> tags.update(c.address) { it.copy(rssiDbm = r, lastSeenEpochMs = System.currentTimeMillis()) } }
-                delay(5_000)
+                val r = c.readRssi()
+                if (r == null) recent.clear() else {
+                    recent.addLast(r); if (recent.size > 3) recent.removeFirst()
+                    val median = recent.sorted()[recent.size / 2]
+                    tags.update(c.address) { it.copy(rssiDbm = median, lastSeenEpochMs = System.currentTimeMillis()) }
+                }
+                delay(3_000)
             }
         }
     }

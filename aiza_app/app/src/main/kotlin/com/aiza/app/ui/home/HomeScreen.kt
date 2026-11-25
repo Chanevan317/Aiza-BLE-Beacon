@@ -2,6 +2,7 @@
 
 package com.aiza.app.ui.home
 
+import com.aiza.data.tags.Presence
 import com.aiza.app.ui.components.fadeTopEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -221,7 +222,7 @@ private fun Header(state: HomeState, onToggleLayout: () -> Unit, modifier: Modif
         Row(verticalAlignment = Alignment.CenterVertically) {
             val n = state.tags.size
             Text(
-                "$n ${if (n == 1) "tag" else "tags"} · ${state.nearbyCount} nearby",
+                "$n ${if (n == 1) "tag" else "tags"} · ${state.nearbyCount} connected",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -317,7 +318,8 @@ private fun LayoutToggle(layout: HomeLayout, onToggle: () -> Unit) {
 /** Card view: square-ish tile, two per row. */
 @Composable
 private fun TagTile(tag: Tag, nowMs: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val nearby = tag.isNearby(nowMs)
+    val presence = tag.presence(nowMs)
+    val nearby = presence.heard
     AizaCard(modifier.fillMaxWidth(), onClick = onClick, padding = 14.dp) {
         Row(verticalAlignment = Alignment.Top) {
             TagAvatar(tag.icon, size = 56.dp, dimmed = !nearby)
@@ -328,10 +330,10 @@ private fun TagTile(tag: Tag, nowMs: Long, onClick: () -> Unit, modifier: Modifi
         Text(tag.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         VSpace(4.dp)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(if (nearby) AizaTheme.extra.success else MaterialTheme.colorScheme.outline)
+            StatusDot(presenceColor(presence))
             HSpace(6.dp)
             Text(
-                if (nearby) "Nearby" else tag.lastSeenEpochMs?.let { relativeTime(it, nowMs) } ?: "Not seen",
+                if (nearby) presence.label else tag.lastSeenEpochMs?.let { relativeTime(it, nowMs) } ?: "Not seen",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -344,7 +346,8 @@ private fun TagTile(tag: Tag, nowMs: Long, onClick: () -> Unit, modifier: Modifi
 
 @Composable
 private fun TagCard(tag: Tag, nowMs: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val nearby = tag.isNearby(nowMs)
+    val presence = tag.presence(nowMs)
+    val nearby = presence.heard
     AizaCard(modifier.fillMaxWidth(), onClick = onClick, padding = 14.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(contentAlignment = Alignment.Center) {
@@ -355,7 +358,7 @@ private fun TagCard(tag: Tag, nowMs: Long, onClick: () -> Unit, modifier: Modifi
                 Text(tag.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 VSpace(4.dp)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusDot(if (nearby) AizaTheme.extra.success else MaterialTheme.colorScheme.outline)
+                    StatusDot(presenceColor(presence))
                     HSpace(6.dp)
                     Text(
                         statusLine(tag, nowMs),
@@ -378,8 +381,13 @@ private fun TagCard(tag: Tag, nowMs: Long, onClick: () -> Unit, modifier: Modifi
     }
 }
 
+/** Green when connected, grey when not. */
+@Composable
+internal fun presenceColor(p: Presence): Color =
+    if (p == Presence.CONNECTED) AizaTheme.extra.success else MaterialTheme.colorScheme.outline
+
 internal fun statusLine(tag: Tag, nowMs: Long): String = when {
-    tag.isNearby(nowMs) -> "Nearby" + (tag.lastSeenPlace?.let { " · $it" } ?: "")
+    tag.presence(nowMs).heard -> tag.presence(nowMs).label + (tag.lastSeenPlace?.let { " · $it" } ?: "")
     tag.lastSeenEpochMs != null -> "Seen ${relativeTime(tag.lastSeenEpochMs!!, nowMs)}" + (tag.lastSeenPlace?.let { " · $it" } ?: "")
     else -> "Not seen yet"
 }
